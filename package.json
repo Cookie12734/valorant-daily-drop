@@ -1,12 +1,14 @@
 {
   "name": "valorant-daily-drop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
+  "main": "scripts/desktop.mjs",
   "description": "A Japanese VALORANT shop website with an unofficial local Riot login helper.",
   "scripts": {
     "start": "electron scripts/desktop.mjs",
     "start:client": "node scripts/local-server.mjs",
+    "package:win": "node scripts/package-win.mjs",
     "shop": "node scripts/export-shop.mjs",
     "test": "node --test scripts/*.test.mjs"
   },

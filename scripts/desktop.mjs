@@ -1,13 +1,13 @@
-import { app, BrowserWindow, session, shell } from 'electron';
+import { app, BrowserWindow, session, shell, dialog } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLocalServer } from './local-server.mjs';
 import { authorizationRequest, parseAuthRedirect, createLoginController, LoginError } from './riot-login.mjs';
 
 // A real, isolated Riot page handles passwords, MFA and CAPTCHA. No preload or DOM scraping.
-function openLogin(partition) {
+function openLogin(partition, parent) {
   const auth = authorizationRequest();
-  const window = new BrowserWindow({ show: false, width: 520, height: 760, title: 'Riot Games — ログイン', autoHideMenuBar: true, webPreferences: { session: partition, nodeIntegration: false, contextIsolation: true, sandbox: true, devTools: false, webSecurity: true } });
+  const window = new BrowserWindow({ parent, modal: true, show: false, width: 520, height: 760, title: 'Riot Games — ログイン', autoHideMenuBar: true, webPreferences: { session: partition, nodeIntegration: false, contextIsolation: true, sandbox: true, devTools: false, webSecurity: true } });
   window.removeMenu();
   let finish, settled = false;
   const result = new Promise((resolve, reject) => {
@@ -55,33 +55,58 @@ mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
+let mainWindow;
+app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
 void app.whenReady().then(async () => {
-// Keep the helper alive after closing the authentication popup; Ctrl+C ends it.
-app.on('window-all-closed', () => {});
+app.on('window-all-closed', () => app.quit());
 const partition = session.fromPartition('persist:riot-login', { cache: false });
 partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 partition.setPermissionCheckHandler(() => false);
 partition.on('will-download', event => event.preventDefault());
-const auth = createLoginController({ openLogin: () => openLogin(partition), clearSavedLogin: async () => {
+const auth = createLoginController({ openLogin: () => openLogin(partition, mainWindow), clearSavedLogin: async () => {
   await partition.clearStorageData();
   await partition.cookies.flushStore();
 } });
 const server = await createLocalServer({ auth });
-const port = Number(process.env.PORT ?? 4173);
-if (!Number.isInteger(port) || port < 1 || port > 65535) { console.error('PORTには1〜65535を指定してください。'); app.quit(); }
+// An ephemeral loopback port serves bundled files inside this app; no hosted backend.
+const port = Number(process.env.PORT ?? 0);
+if (!Number.isInteger(port) || port < 0 || port > 65535) { dialog.showErrorBox('DAILY DROP', 'PORTには0〜65535を指定してください。'); app.quit(); }
 else {
-  server.on('error', () => { console.error('起動できません。別のPORTを指定するか、起動中のDAILY DROPを終了してください。'); app.quit(); });
+  server.on('error', () => { dialog.showErrorBox('DAILY DROP', 'アプリを起動できません。起動中のDAILY DROPを終了して再度お試しください。'); app.quit(); });
   server.listen(port, '127.0.0.1', async () => {
+    const url = `http://127.0.0.1:${server.address().port}`;
+    mainWindow = new BrowserWindow({ show: false, width: 1280, height: 900, minWidth: 760, minHeight: 600, title: 'DAILY DROP', backgroundColor: '#111318', autoHideMenuBar: true, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged } });
+    mainWindow.removeMenu();
+    mainWindow.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+    mainWindow.webContents.session.setPermissionCheckHandler(() => false);
+    const external = raw => {
+      try {
+        const target = new URL(raw);
+        if (target.protocol === 'https:' && !target.username && !target.password && ['github.com', 'valorant-api.com'].includes(target.hostname)) void shell.openExternal(target.href).catch(() => {});
+      } catch { /* Unrecognized navigation stays blocked. */ }
+    };
+    mainWindow.webContents.setWindowOpenHandler(({ url: target }) => { external(target); return { action: 'deny' }; });
+    mainWindow.webContents.on('will-navigate', (event, target) => {
+      if (new URL(target).origin !== url) { event.preventDefault(); external(target); }
+    });
+    mainWindow.on('closed', () => { mainWindow = undefined; app.quit(); });
     try {
       if ((await partition.cookies.get({ url: 'https://auth.riotgames.com', name: 'ssid' })).length) auth.start();
     } catch { /* Manual login remains available if the stored session cannot be read. */ }
-    const url = `http://127.0.0.1:${port}`;
-    console.log(`DAILY DROP: ${url}\n終了するには Ctrl+C を押してください。`);
-    if (!process.argv.includes('--no-open')) void shell.openExternal(url).catch(() => console.log('上記URLをブラウザーで開いてください。'));
+    console.log(`DAILY DROP: ${url}\nショップ画面を閉じると終了します。`);
+    try {
+      await mainWindow.loadURL(url);
+      if (!process.argv.includes('--no-open')) mainWindow.show();
+    } catch { dialog.showErrorBox('DAILY DROP', 'ショップ画面を開けませんでした。アプリを再起動してください。'); app.quit(); }
   });
 }
 app.on('before-quit', () => { auth.dispose(); server.close(); });
 process.on('SIGINT', () => app.quit());
 process.on('SIGTERM', () => app.quit());
-}).catch(() => { console.error('補助アプリを起動できませんでした。'); app.quit(); });
+}).catch(() => { dialog.showErrorBox('DAILY DROP', 'アプリを起動できませんでした。'); app.quit(); });
 }

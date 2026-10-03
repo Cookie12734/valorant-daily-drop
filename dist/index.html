@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="RiotにログインしてVALORANTの自分専用デイリーショップを確認。ローカルヘルパーでスキン・VP価格・更新までの時間を表示します。">
+  <meta name="description" content="RiotにログインしてVALORANTの自分専用デイリーショップを確認。デスクトップアプリでスキン・VP価格・更新までの時間を表示します。">
   <meta name="theme-color" content="#111318">
   <title>DAILY DROP — VALORANT 今日のショップ</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -38,7 +38,7 @@
       <div class="shop-bottom"><p id="shop-status" role="status">プレビュー · 価格はショップ取得後に表示</p><button class="text-button" id="preview-button" hidden>プレビューに戻す</button></div>
     </section>
     <section class="connect-panel" aria-labelledby="connect-heading">
-      <div class="connect-copy"><svg class="icon large-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6zM9 12l2 2 4-4"/></svg><div><h2 id="connect-heading">あなたのショップを、あなたの手元で。</h2><p>ローカルヘルパーからRiotのログイン画面を開きます。ゲームの起動は不要です。</p></div></div>
+      <div class="connect-copy"><svg class="icon large-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6zM9 12l2 2 4-4"/></svg><div><h2 id="connect-heading">あなたのショップを、あなたの手元で。</h2><p>このPCからRiotへ直接接続。ログインを保持して、次回からショップを自動表示します。</p></div></div>
       <button class="button quiet" id="setup-button">使い方を見る</button>
     </section>
     <p class="source-note">スキン情報：<a href="https://valorant-api.com/" target="_blank" rel="noopener noreferrer">Valorant-API</a>。ショップはアカウントごとに異なります。</p>
@@ -48,9 +48,9 @@
   <dialog id="help-dialog" aria-labelledby="help-title">
     <form method="dialog"><button class="close-button" aria-label="閉じる">×</button></form>
     <span class="dialog-label">CONNECT YOUR SHOP</span><h2 id="help-title">Riotにログインしてショップを見る</h2>
-    <p>この公開サイトだけではログインできません。PCでローカルヘルパーを起動すると、ブラウザーでショップを確認できます。</p>
-    <h3>ローカルヘルパーを使う</h3><ol><li><a href="https://github.com/Cookie12734/valorant-daily-drop" target="_blank" rel="noopener noreferrer">GitHub</a>からソースをダウンロードし、Node.js 22.12以降をインストール。</li><li>プロジェクトのフォルダーで<code>npm ci</code>、続けて<code>npm start</code>を実行。</li><li>開いたブラウザーで「Riotでログイン」を押し、別ウィンドウのRiotログインページで認証。確認コードやCAPTCHAもその画面で入力します。</li><li>ログインが完了すると、今日のショップが自動で表示されます。ゲームの起動は不要です。</li></ol>
-    <p class="privacy-note">パスワードはRiotのログインページに入力し、このアプリでは保存しません。ショップ取得用のアクセストークンはローカルヘルパーのメモリーで扱い、この公開サイトへ送信しません。次回から自動ログインするため、このPCにRiotのログインCookieを保持します。Riotのログイン画面で「ログイン状態を保持する」を有効にしてください。ログアウトすると保存情報も削除します。Riot側の期限切れ時は再入力が必要です。</p>
+    <p>Windowsアプリを起動し、初回にRiotアカウントでログインしてください。保存したログイン状態が有効なら、次回から今日のショップを自動表示します。</p>
+    <h3>Windowsアプリを使う</h3><ol><li><a href="https://github.com/Cookie12734/valorant-daily-drop/releases/latest" target="_blank" rel="noopener noreferrer">ダウンロードページ</a>からWindows用ZIPを取得して、すべて展開します。</li><li>展開したフォルダーの<code>DailyDrop.exe</code>を起動します。Node.jsのインストールやコマンド操作は不要です。</li><li>「Riotでログイン」を押し、アプリ内のRiot画面で認証。「ログイン状態を保持する」を有効にしてください。確認コードやCAPTCHAもRiot画面で入力します。</li><li>ログインが完了するとショップを自動表示します。終了するときはショップ画面を閉じます。</li></ol>
+    <p class="privacy-note">パスワードはRiotのログインページに入力し、このアプリでは保存しません。ショップ取得用のアクセストークンはこのアプリのメモリーで扱います。独自サーバーへ送信することはありません。次回から自動ログインするため、このPCにRiotのログインCookieを保持します。Riotのログイン画面で「ログイン状態を保持する」を有効にしてください。ログアウトすると保存情報も削除します。Riot側の期限切れ時は再入力が必要です。</p>
     <p class="small-label">Riot公式のログイン連携ではない非公式ツールです。Riot側の変更により利用できなくなる場合があります。</p>
     <details class="import-help"><summary>ショップファイルを読み込む（任意）</summary><p>取得済みの<code>shop.json</code>がある場合は、ファイル取得時点のショップも表示できます。従来のRiot Client経由では、ログインしてVALORANTを起動し、<code>npm run shop</code>で<code>exports/shop.json</code>を作成します。</p><p class="privacy-note">ファイルにはスキンID・価格・取得／更新時刻・リージョンを含みます。ファイルはブラウザー内で処理します。</p><button class="button quiet full-button" id="dialog-import">ショップファイルを読み込む</button></details>
   </dialog>

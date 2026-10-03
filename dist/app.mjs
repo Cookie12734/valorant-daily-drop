@@ -160,7 +160,7 @@ async function getShop() {
     if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : 'ショップを取得できませんでした。もう一度ログインして取得してください。');
     await displaySnapshot(data, 'local', currentOperation);
   } catch (error) {
-    if (currentOperation === operation) showError(error.name === 'TimeoutError' ? '取得に時間がかかっています。ネットワークを確認して、もう一度取得してください。' : ['TypeError', 'SyntaxError'].includes(error.name) ? 'ローカルヘルパーに接続できません。起動状態を確認して再度お試しください。' : error.message);
+    if (currentOperation === operation) showError(error.name === 'TimeoutError' ? '取得に時間がかかっています。ネットワークを確認して、もう一度取得してください。' : ['TypeError', 'SyntaxError'].includes(error.name) ? 'アプリに接続できません。再起動してお試しください。' : error.message);
   } finally {
     if (currentOperation === operation) setLoading(false);
   }
@@ -197,7 +197,7 @@ async function pollLogin() {
     if (authState === 'pending' && currentOperation === operation) applyStatus(status);
   } catch {
     if (authState === 'pending' && currentOperation === operation) {
-      showError('ローカルヘルパーに接続できません。起動状態を確認するか、キャンセルして再度お試しください。');
+      showError('アプリに接続できません。キャンセルして再度お試しください。');
       pollTimer = setTimeout(pollLogin, 1000);
     }
   }
@@ -217,7 +217,7 @@ async function startLogin() {
   } catch (error) {
     if (currentOperation !== operation) return;
     authState = 'error';
-    showError(['TimeoutError', 'TypeError', 'SyntaxError'].includes(error.name) ? 'ログイン画面を開けませんでした。ローカルヘルパーを確認して再度お試しください。' : error.message);
+    showError(['TimeoutError', 'TypeError', 'SyntaxError'].includes(error.name) ? 'ログイン画面を開けませんでした。アプリを再起動してお試しください。' : error.message);
     updateControls();
   }
 }
@@ -236,7 +236,7 @@ async function logout() {
   } catch {
     authState = logoutState;
     if (authState === 'pending') pollTimer = setTimeout(pollLogin, 1000);
-    showError('ログアウトを完了できませんでした。認証情報を消すにはローカルヘルパーを終了してください。');
+    showError('保存したログイン情報を削除できませんでした。もう一度ログアウトしてください。');
   } finally {
     logoutState = '';
     updateControls();
