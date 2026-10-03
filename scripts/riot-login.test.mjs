@@ -48,7 +48,7 @@ test('Riot login callback binding, downstream requests and logout races', async 
   let complete, clock = 1000;
   const controller = createLoginController({ openLogin: () => ({ result: new Promise(resolve => { complete = resolve; }), cancel() {} }), connect: async value => value, loadShop: async () => shop, now: () => clock });
   assert.equal(controller.start().state, 'pending');
-  controller.logout();
+  await controller.logout();
   complete(account);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(controller.status().state, 'signed_out');
@@ -87,4 +87,30 @@ test('HTTP login requires same-origin POST and never returns tokens', async () =
     await call('/api/logout');
     assert.equal(state, 'signed_out');
   } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test('remembered login survives shutdown and is cleared before another login', async () => {
+  let resolveClear, clears = 0, opens = 0;
+  const controller = createLoginController({
+    openLogin: () => { opens++; return { result: new Promise(() => {}), cancel() {} }; },
+    clearSavedLogin: () => { clears++; return new Promise(resolve => { resolveClear = resolve; }); },
+    now: () => 5000,
+  });
+  controller.start();
+  controller.dispose();
+  assert.equal(clears, 0, 'closing the app must preserve remembered login');
+  const clearing = controller.logout();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(clears, 1);
+  assert.equal(controller.logout(), clearing, 'concurrent logout shares deletion');
+  assert.throws(() => controller.start(), /ログアウト処理/);
+  resolveClear();
+  await clearing;
+  assert.equal(controller.status().state, 'signed_out');
+  assert.equal(opens, 1);
+
+  const failure = createLoginController({ openLogin: () => { throw new Error('must not open'); }, clearSavedLogin: async () => { throw new Error('storage-secret'); } });
+  await assert.rejects(failure.logout(), /削除できません/);
+  assert.throws(() => failure.start(), /ログアウト処理/);
+  assert.equal(JSON.stringify(failure.status()).includes('storage-secret'), false);
 });

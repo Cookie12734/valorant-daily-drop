@@ -62,13 +62,14 @@ export async function sessionShop(session, request = fetch) {
 }
 
 // ponytail: one local user per helper process; do not expose this server to a network.
-export function createLoginController({ openLogin, connect = accountSession, loadShop = sessionShop, now = Date.now }) {
+export function createLoginController({ openLogin, connect = accountSession, loadShop = sessionShop, clearSavedLogin = async () => {}, now = Date.now }) {
   let state = 'signed_out', error, session, attempt, generation = 0, lastStart = -Infinity;
+  let clearing, mustClear = false;
   function status() {
     if (session && session.expiresAt <= now() + 15000) { session = undefined; state = 'signed_out'; }
     return { state, ...(error ? { error } : {}) };
   }
-  function logout() {
+  function reset() {
     generation++;
     session = undefined;
     state = 'signed_out';
@@ -76,11 +77,23 @@ export function createLoginController({ openLogin, connect = accountSession, loa
     attempt?.cancel();
     attempt = undefined;
   }
+  function logout() {
+    if (clearing) return clearing;
+    reset();
+    mustClear = true;
+    clearing = Promise.resolve().then(clearSavedLogin).then(() => { mustClear = false; }).catch(() => {
+      state = 'error';
+      error = '保存したログイン情報を削除できません。もう一度ログアウトしてください。';
+      throw new LoginError(error);
+    }).finally(() => { clearing = undefined; });
+    return clearing;
+  }
   function start() {
+    if (mustClear) throw new LoginError('ログアウト処理の完了後にログインしてください。');
     if (state === 'pending' || status().state === 'signed_in') return status();
     if (now() - lastStart < 2000) throw new LoginError('少し待ってから、もう一度ログインしてください。');
     lastStart = now();
-    logout();
+    reset();
     const current = generation;
     state = 'pending';
     try {
@@ -95,7 +108,7 @@ export function createLoginController({ openLogin, connect = accountSession, loa
     } catch { state = 'error'; error = 'ログイン画面を開けませんでした。補助アプリを再起動してください。'; }
     return status();
   }
-  return { status, start, logout, async shop() {
+  return { status, start, logout, dispose: reset, async shop() {
     if (status().state !== 'signed_in') throw new LoginError('Riotアカウントでログインしてください。');
     const current = generation;
     const snapshot = await loadShop(session);

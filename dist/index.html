@@ -50,7 +50,7 @@
     <span class="dialog-label">CONNECT YOUR SHOP</span><h2 id="help-title">Riotにログインしてショップを見る</h2>
     <p>この公開サイトだけではログインできません。PCでローカルヘルパーを起動すると、ブラウザーでショップを確認できます。</p>
     <h3>ローカルヘルパーを使う</h3><ol><li><a href="https://github.com/Cookie12734/valorant-daily-drop" target="_blank" rel="noopener noreferrer">GitHub</a>からソースをダウンロードし、Node.js 22.12以降をインストール。</li><li>プロジェクトのフォルダーで<code>npm ci</code>、続けて<code>npm start</code>を実行。</li><li>開いたブラウザーで「Riotでログイン」を押し、別ウィンドウのRiotログインページで認証。確認コードやCAPTCHAもその画面で入力します。</li><li>ログインが完了すると、今日のショップが自動で表示されます。ゲームの起動は不要です。</li></ol>
-    <p class="privacy-note">パスワードはRiotのログインページに入力し、このアプリでは保存しません。認証トークンはローカルヘルパーのメモリーにだけ保持し、この公開サイトへ送信しません。ヘルパーを終了すると再ログインが必要です。</p>
+    <p class="privacy-note">パスワードはRiotのログインページに入力し、このアプリでは保存しません。ショップ取得用のアクセストークンはローカルヘルパーのメモリーで扱い、この公開サイトへ送信しません。次回から自動ログインするため、このPCにRiotのログインCookieを保持します。Riotのログイン画面で「ログイン状態を保持する」を有効にしてください。ログアウトすると保存情報も削除します。Riot側の期限切れ時は再入力が必要です。</p>
     <p class="small-label">Riot公式のログイン連携ではない非公式ツールです。Riot側の変更により利用できなくなる場合があります。</p>
     <details class="import-help"><summary>ショップファイルを読み込む（任意）</summary><p>取得済みの<code>shop.json</code>がある場合は、ファイル取得時点のショップも表示できます。従来のRiot Client経由では、ログインしてVALORANTを起動し、<code>npm run shop</code>で<code>exports/shop.json</code>を作成します。</p><p class="privacy-note">ファイルにはスキンID・価格・取得／更新時刻・リージョンを含みます。ファイルはブラウザー内で処理します。</p><button class="button quiet full-button" id="dialog-import">ショップファイルを読み込む</button></details>
   </dialog>
@@ -61,4 +61,6 @@
   <noscript><p class="page">ショップの表示にはJavaScriptを有効にしてください。</p></noscript>
 </body>
 </html>
+
+
 

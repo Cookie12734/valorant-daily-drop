@@ -65,7 +65,7 @@ export async function createLocalServer({ directory = fileURLToPath(new URL('../
       if (path !== '/api/shop') {
         if (!auth) { json(response, 503, { error: 'npm startでログイン補助アプリを起動してください。' }); return; }
         try {
-          if (path === '/api/login') auth.start(); else auth.logout();
+          if (path === '/api/login') auth.start(); else await auth.logout();
           json(response, path === '/api/login' ? 202 : 200, { local: true, login: true, auth: auth.status() });
         } catch (error) { json(response, 429, { error: error instanceof LoginError ? error.message : '操作できませんでした。' }); }
         return;
