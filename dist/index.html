@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="RiotにログインしてVALORANTの自分専用デイリーショップを確認。ローカルヘルパーでスキン・VP価格・更新までの時間を表示します。">
+  <meta name="theme-color" content="#111318">
+  <title>DAILY DROP — VALORANT 今日のショップ</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Tomorrow:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.mjs"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">ショップへ移動</a>
+  <header class="header">
+    <a class="brand" href="/" aria-label="DAILY DROP ホーム">
+      <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true"><path d="M5 4h9l13 13v11h-9L5 15z" fill="currentColor"/><path d="m14 4 13 13h-9L5 4" class="mark-cut"/></svg>
+      <span>DAILY<span class="brand-light">DROP</span><small>VALORANT SHOP VIEWER</small></span>
+    </a>
+    <button class="button quiet" id="help-button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3h.01"/></svg>接続方法</button>
+  </header>
+  <main class="page" id="main">
+    <div class="page-heading">
+      <div><div class="date-line"><time id="today"></time><span class="slash">/</span><span>VALORANT</span></div><h1>今日のショップ<span class="title-period">.</span></h1></div>
+      <div class="countdown"><span class="small-label" id="clock-label">ショップ更新まで</span><div class="clock" id="clock">— : — : —</div><span class="small-label" id="expiry-label">接続後に表示</span></div>
+    </div>
+    <section class="shop-section" aria-labelledby="shop-heading">
+      <div class="shop-toolbar">
+        <div class="section-title"><span class="section-marker" aria-hidden="true"></span><h2 id="shop-heading">デイリーオファー</h2><span class="offer-count" id="offer-count">04</span></div>
+        <div class="toolbar-actions"><span class="connection-label" id="connection-label" role="status">未接続</span><button class="button quiet" id="logout-button" hidden><span id="logout-label">ログアウト</span></button><button class="button primary" id="load-button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5"/></svg><span id="load-label">Riotでログイン</span></button></div>
+      </div>
+      <div class="notice" id="notice"><span class="notice-tag" id="notice-tag">PREVIEW</span><p id="notice-text">表示例です。あなたの今日のショップは接続後に表示されます。</p></div>
+      <p id="error" class="error" role="alert" hidden></p>
+      <div class="shop-grid" id="shop-grid" aria-busy="false"></div>
+      <div class="shop-bottom"><p id="shop-status" role="status">プレビュー · 価格はショップ取得後に表示</p><button class="text-button" id="preview-button" hidden>プレビューに戻す</button></div>
+    </section>
+    <section class="connect-panel" aria-labelledby="connect-heading">
+      <div class="connect-copy"><svg class="icon large-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6zM9 12l2 2 4-4"/></svg><div><h2 id="connect-heading">あなたのショップを、あなたの手元で。</h2><p>ローカルヘルパーからRiotのログイン画面を開きます。ゲームの起動は不要です。</p></div></div>
+      <button class="button quiet" id="setup-button">使い方を見る</button>
+    </section>
+    <p class="source-note">スキン情報：<a href="https://valorant-api.com/" target="_blank" rel="noopener noreferrer">Valorant-API</a>。ショップはアカウントごとに異なります。</p>
+  </main>
+  <footer class="footer"><p>DAILY DROP <span>/</span> Unofficial fan project</p><p>VALORANT © Riot Games. Riot Gamesとの提携はありません。</p><a id="github-link" href="https://github.com/Cookie12734/valorant-daily-drop" target="_blank" rel="noopener noreferrer">GitHub</a></footer>
+  <input id="file-input" type="file" accept=".json,application/json" aria-label="ショップJSONファイル" hidden>
+  <dialog id="help-dialog" aria-labelledby="help-title">
+    <form method="dialog"><button class="close-button" aria-label="閉じる">×</button></form>
+    <span class="dialog-label">CONNECT YOUR SHOP</span><h2 id="help-title">Riotにログインしてショップを見る</h2>
+    <p>この公開サイトだけではログインできません。PCでローカルヘルパーを起動すると、ブラウザーでショップを確認できます。</p>
+    <h3>ローカルヘルパーを使う</h3><ol><li><a href="https://github.com/Cookie12734/valorant-daily-drop" target="_blank" rel="noopener noreferrer">GitHub</a>からソースをダウンロードし、Node.js 22.12以降をインストール。</li><li>プロジェクトのフォルダーで<code>npm ci</code>、続けて<code>npm start</code>を実行。</li><li>開いたブラウザーで「Riotでログイン」を押し、別ウィンドウのRiotログインページで認証。確認コードやCAPTCHAもその画面で入力します。</li><li>ログインが完了すると、今日のショップが自動で表示されます。ゲームの起動は不要です。</li></ol>
+    <p class="privacy-note">パスワードはRiotのログインページに入力し、このアプリでは保存しません。認証トークンはローカルヘルパーのメモリーにだけ保持し、この公開サイトへ送信しません。ヘルパーを終了すると再ログインが必要です。</p>
+    <p class="small-label">Riot公式のログイン連携ではない非公式ツールです。Riot側の変更により利用できなくなる場合があります。</p>
+    <details class="import-help"><summary>ショップファイルを読み込む（任意）</summary><p>取得済みの<code>shop.json</code>がある場合は、ファイル取得時点のショップも表示できます。従来のRiot Client経由では、ログインしてVALORANTを起動し、<code>npm run shop</code>で<code>exports/shop.json</code>を作成します。</p><p class="privacy-note">ファイルにはスキンID・価格・取得／更新時刻・リージョンを含みます。ファイルはブラウザー内で処理します。</p><button class="button quiet full-button" id="dialog-import">ショップファイルを読み込む</button></details>
+  </dialog>
+  <dialog id="skin-dialog" aria-labelledby="skin-title">
+    <form method="dialog"><button class="close-button" aria-label="閉じる">×</button></form>
+    <span class="dialog-label" id="skin-weapon"></span><h2 id="skin-title"></h2><div class="detail-art"><img id="skin-image" alt="" width="720" height="300"></div><div class="detail-price" id="skin-price"></div><p class="small-label">購入はゲーム内のショップから行えます。</p>
+  </dialog>
+  <noscript><p class="page">ショップの表示にはJavaScriptを有効にしてください。</p></noscript>
+</body>
+</html>
+

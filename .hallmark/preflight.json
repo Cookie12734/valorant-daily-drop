@@ -1,0 +1,9 @@
+{
+  "date": "2026-10-01",
+  "existingProject": false,
+  "framework": "static HTML with native JavaScript",
+  "motion": "cut",
+  "audience": "Japanese VALORANT players",
+  "useCase": "View the current personal daily shop",
+  "tone": "technical, dark, restrained"
+}
