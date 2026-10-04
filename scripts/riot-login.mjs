@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { snapshotFromStorefront } from './riot-client.mjs';
+import { nightMarketFromStorefront } from './night-market.mjs';
 
 const REDIRECT = 'https://playvalorant.com/opt_in';
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
@@ -54,11 +55,12 @@ export async function accountSession(tokens, request = fetch) {
   return { accessToken: tokens.accessToken, expiresAt: tokens.expiresAt, subject: player.sub, entitlement: token, shard };
 }
 
-export async function sessionShop(session, request = fetch) {
+export async function sessionShop(session, request = fetch, mode = 'daily') {
+  if (!['daily', 'night-market'].includes(mode)) throw new LoginError('ショップの種類を読み取れません。');
   const version = (await riotJson('https://valorant-api.com/v1/version', {}, request))?.data?.riotClientVersion;
   if (typeof version !== 'string' || !/^release-\d+\.\d+-shipping-\d+-\d+$/.test(version)) throw new LoginError('VALORANTのバージョン情報を取得できません。');
   const store = await riotJson(`https://pd.${session.shard}.a.pvp.net/store/v3/storefront/${session.subject}`, { method: 'POST', body: '{}', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${session.accessToken}`, 'X-Riot-Entitlements-JWT': session.entitlement, 'X-Riot-ClientPlatform': PLATFORM, 'X-Riot-ClientVersion': version } }, request);
-  return { ...snapshotFromStorefront(store, session.shard), source: 'riot-login' };
+  return { ...(mode === 'night-market' ? nightMarketFromStorefront(store, session.shard) : snapshotFromStorefront(store, session.shard)), source: 'riot-login' };
 }
 
 // ponytail: one local user per helper process; do not expose this server to a network.
@@ -108,10 +110,10 @@ export function createLoginController({ openLogin, connect = accountSession, loa
     } catch { state = 'error'; error = 'ログイン画面を開けませんでした。補助アプリを再起動してください。'; }
     return status();
   }
-  return { status, start, logout, dispose: reset, async shop() {
+  return { status, start, logout, dispose: reset, async shop(mode = 'daily') {
     if (status().state !== 'signed_in') throw new LoginError('Riotアカウントでログインしてください。');
     const current = generation;
-    const snapshot = await loadShop(session);
+    const snapshot = await loadShop(session, undefined, mode);
     if (current !== generation || status().state !== 'signed_in') throw new LoginError('ログアウトしたため、取得を中止しました。');
     return snapshot;
   } };

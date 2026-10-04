@@ -1,6 +1,7 @@
 import { readFile, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { get } from 'node:https';
+import { nightMarketFromStorefront } from './night-market.mjs';
 
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const SHARDS = new Set(['na', 'eu', 'ap', 'kr', 'pbe']);
@@ -86,7 +87,8 @@ export function snapshotFromStorefront(store, shard, now = new Date()) {
   return { schemaVersion: 1, source: 'riot-client', fetchedAt: now.toISOString(), expiresAt: new Date(now.getTime() + remaining * 1000).toISOString(), region: shard, offers };
 }
 
-export async function fetchShopSnapshot() {
+export async function fetchShopSnapshot(mode = 'daily') {
+  if (!['daily', 'night-market'].includes(mode)) throw new Error('ショップの種類を読み取れません。');
   const localAppData = process.env.LOCALAPPDATA;
   if (!localAppData) throw new Error('Windows の Riot Client が必要です。');
   let lockfile;
@@ -105,6 +107,6 @@ export async function fetchShopSnapshot() {
     if (!VERSION.test(version ?? '')) version = clientContext(sessions, await logTail(localAppData), auth.subject).version;
     if (!VERSION.test(version ?? '')) throw new Error('クライアントのバージョンを取得できません。');
     const store = await remoteJson(`https://pd.${context.shard}.a.pvp.net/store/v3/storefront/${auth.subject}`, { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${auth.accessToken}`, 'X-Riot-Entitlements-JWT': auth.token, 'X-Riot-ClientPlatform': PLATFORM, 'X-Riot-ClientVersion': version }, { method: 'POST', body: '{}' });
-    return snapshotFromStorefront(store, context.shard);
+    return mode === 'night-market' ? nightMarketFromStorefront(store, context.shard) : snapshotFromStorefront(store, context.shard);
   } catch { throw new Error('ショップを取得できません。VALORANT を起動してログインし、もう一度お試しください。'); }
 }

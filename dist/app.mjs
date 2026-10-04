@@ -1,4 +1,4 @@
-import { parseSnapshot, remainingTime } from './shop.mjs';
+import { parseSnapshot, parseNightMarket, remainingTime } from './shop.mjs';
 
 const $ = id => document.getElementById(id);
 const preview = [
@@ -8,6 +8,7 @@ const preview = [
   { id: '99b0edce-48db-b898-1d6f-0fa89795226d', name: 'クロナミの刃', weapon: '近接武器', image: '/assets/kuronami.png', price: null },
 ];
 let snapshot = null;
+let market = 'daily';
 let local = false;
 let login = false;
 let authState = 'signed_out';
@@ -51,9 +52,14 @@ function renderCards(offers) {
       art.append(image);
     } else art.append(node('span', 'small-label', 'スキン情報を取得できません'));
     const content = node('div', 'card-content');
-    content.append(node('span', 'skin-name', offer.name), node('span', 'card-subtitle', snapshot ? 'デイリーオファー' : 'プレビュー'));
+    content.append(node('span', 'skin-name', offer.name), node('span', 'card-subtitle', snapshot ? market === 'daily' ? 'デイリーオファー' : 'ナイトマーケット' : 'プレビュー'));
     const price = node('div', 'card-price');
     price.append(node('span', 'vp-mark', 'V'), node('span', '', priceLabel(offer.price)), node('span', 'price-unit', 'VP'));
+    if (offer.originalPrice !== undefined) {
+      const discount = node('div', 'discount');
+      discount.append(node('del', '', priceLabel(offer.originalPrice) + ' VP'), node('span', '', offer.discountPercent + '% OFF'));
+      content.append(discount);
+    }
     content.append(price);
     card.append(top, art, content);
     card.addEventListener('click', () => {
@@ -68,7 +74,7 @@ function renderCards(offers) {
     return card;
   }));
   $('offer-count').textContent = String(offers.length).padStart(2, '0');
-  if (!offers.length) $('shop-grid').append(node('p', 'small-label', '現在、デイリーオファーがありません。ゲーム内のショップを確認してください。'));
+  if (!offers.length) $('shop-grid').append(node('p', 'small-label', market === 'daily' ? '現在、デイリーオファーがありません。ゲーム内のショップを確認してください。' : !snapshot ? '接続後にナイトマーケットを確認できます。' : !snapshot.active ? '現在、このアカウントのナイトマーケットは開催されていません。' : '表示できるナイトマーケットの商品がありません。'));
 }
 function showError(message) {
   $('error').textContent = message;
@@ -78,6 +84,7 @@ function showError(message) {
 function updateControls() {
   const pending = login && authState === 'pending';
   $('load-button').disabled = loading || pending || Boolean(logoutState);
+  for (const id of ['daily-button', 'night-button']) $(id).disabled = loading || pending || Boolean(logoutState);
   $('logout-button').hidden = !login || !logoutState && !['pending', 'signed_in', 'error'].includes(authState);
   $('logout-button').disabled = Boolean(logoutState);
   $('logout-label').textContent = logoutState ? '終了中…' : pending ? 'キャンセル' : 'ログアウト';
@@ -108,7 +115,7 @@ async function skinInfo(offer) {
   return { ...offer, ...metadata.get(offer.id) };
 }
 async function displaySnapshot(value, mode, currentOperation) {
-  const next = parseSnapshot(value);
+  const next = market === 'daily' ? parseSnapshot(value) : parseNightMarket(value);
   const results = await Promise.allSettled(next.offers.map(skinInfo));
   if (currentOperation !== operation) return;
   const offers = results.map((result, index) => result.status === 'fulfilled' ? result.value :
@@ -120,12 +127,13 @@ async function displaySnapshot(value, mode, currentOperation) {
   $('notice-tag').textContent = mode === 'local' ? 'YOUR SHOP' : 'SNAPSHOT';
   $('notice-text').textContent = mode === 'local' ? 'Riotから取得した、あなた専用のショップです。' : 'ファイル取得時点のショップです。最新情報はファイルを再取得してください。';
   $('shop-status').textContent = `${timeFormat.format(new Date(next.fetchedAt))} JST 取得${results.some(result => result.status === 'rejected') ? ' · 一部のスキン情報を取得できません。再読み込みしてください。' : ''}`;
-  $('expiry-label').textContent = `${timeFormat.format(new Date(next.expiresAt))} JST 更新`;
+  $('expiry-label').textContent = next.expiresAt ? `${timeFormat.format(new Date(next.expiresAt))} JST ${market === 'daily' ? '更新' : '終了'}` : '開催期間なし';
   $('preview-button').hidden = false;
   tick();
 }
 function tick() {
   if (!snapshot) return;
+  if (snapshot.expiresAt === null) { $('clock').textContent = '開催なし'; return; }
   $('clock').textContent = remainingTime(snapshot.expiresAt);
   if (Date.now() >= Date.parse(snapshot.expiresAt) && !expired) {
     expired = true;
@@ -145,7 +153,8 @@ function resetPreview() {
   $('expiry-label').textContent = '接続後に表示';
   $('shop-status').textContent = 'プレビュー · 価格はショップ取得後に表示';
   $('preview-button').hidden = true;
-  renderCards(preview);
+  renderCards(market === 'daily' ? preview : []);
+  if (market !== 'daily') { $('notice-tag').textContent = 'NIGHT MARKET'; $('notice-text').textContent = '接続すると、あなたのナイトマーケットを確認できます。'; $('shop-status').textContent = '未取得'; }
   updateControls();
 }
 async function getShop() {
@@ -153,7 +162,7 @@ async function getShop() {
   $('error').hidden = true;
   setLoading(true);
   try {
-    const response = await fetch('/api/shop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(60000) });
+    const response = await fetch(market === 'daily' ? '/api/shop' : '/api/night-market', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(60000) });
     const data = await response.json();
     if (currentOperation !== operation) return;
     if (response.status === 401 && login) { authState = 'signed_out'; resetPreview(); }
@@ -249,6 +258,23 @@ $('load-button').addEventListener('click', () => {
   else getShop();
 });
 $('logout-button').addEventListener('click', logout);
+function selectMarket(next) {
+  market = next;
+  document.body.dataset.market = market;
+  $('daily-button').setAttribute('aria-pressed', String(market === 'daily'));
+  $('night-button').setAttribute('aria-pressed', String(market !== 'daily'));
+  $('view-title').textContent = market === 'daily' ? '今日のショップ' : 'ナイトマーケット';
+  $('shop-heading').textContent = market === 'daily' ? 'デイリーオファー' : '期間限定オファー';
+  $('clock-label').textContent = market === 'daily' ? 'ショップ更新まで' : '開催終了まで';
+}
+for (const [id, next] of [['daily-button', 'daily'], ['night-button', 'night-market']]) $(id).addEventListener('click', () => {
+  if (market === next || loading || logoutState || authState === 'pending') return;
+  ++operation;
+  $('skin-dialog').close();
+  selectMarket(next);
+  resetPreview();
+  if (local && (!login || authState === 'signed_in')) getShop();
+});
 $('file-input').addEventListener('change', async event => {
   const file = event.target.files[0];
   if (!file || loading || logoutState || authState === 'pending') return;
@@ -260,6 +286,8 @@ $('file-input').addEventListener('change', async event => {
     let data;
     try { data = JSON.parse(await file.text()); }
     catch { throw new Error('JSONファイルを読み取れません。shop.jsonを再取得してください。'); }
+    selectMarket(data?.kind === 'night-market' ? 'night-market' : 'daily');
+    resetPreview();
     await displaySnapshot(data, 'file', currentOperation);
   } catch (error) { if (currentOperation === operation) showError(error.message); }
   finally { if (currentOperation === operation) setLoading(false); }

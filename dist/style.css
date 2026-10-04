@@ -3,6 +3,12 @@
  * audience: Japanese VALORANT players · use: personal daily shop
  * pre-emit critique: P5 H4 E4 S5 R5 V4 */
 @import url('/tokens.css');
+.market-switch { display: flex; gap: 8px; margin-bottom: 12px; }
+.market-switch .button[aria-pressed='true'] { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-paper-2); }
+.discount { color: var(--color-accent); font-size: 12px; }
+.discount del { color: var(--color-muted); margin-right: 6px; }
+#shop-grid > p { grid-column: 1 / -1; padding-block: 24px; }
+@media (min-width: 68rem) { body[data-market='night-market'] .shop-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 * { box-sizing: border-box; }
 html, body { overflow-x: clip; }
 body { margin: 0; background: var(--color-paper); color: var(--color-ink); font-family: var(--font-body); font-size: var(--text-base); line-height: 1.6; }

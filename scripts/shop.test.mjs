@@ -1,6 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSnapshot, remainingTime } from '../dist/shop.mjs';
+import { parseSnapshot, parseNightMarket, remainingTime } from '../dist/shop.mjs';
+
+test('Night Market imports validate discounts and strip extra fields', () => {
+  const market = { schemaVersion: 1, kind: 'night-market', source: 'riot-login', region: 'ap', active: true,
+    fetchedAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-21T00:00:00Z', token: 'secret',
+    offers: [{ id: 'ba42fe63-457a-78ce-4499-47950a698129', price: 1000, originalPrice: 2000, discountPercent: 50, secret: 'secret' }] };
+  assert.equal(JSON.stringify(parseNightMarket(market)).includes('secret'), false);
+  assert.equal(parseNightMarket({ ...market, active: false, expiresAt: null, offers: [] }).active, false);
+  for (const invalid of [null, { ...market, expiresAt: null }, { ...market, active: false },
+    { ...market, offers: [{ ...market.offers[0], price: 3000 }] },
+    { ...market, offers: [{ ...market.offers[0], discountPercent: 101 }] },
+    { ...market, offers: [market.offers[0], market.offers[0]] }]) assert.throws(() => parseNightMarket(invalid));
+});
 
 test('snapshot validation, secret stripping, expiry and malformed input', () => {
   const shop = { schemaVersion: 1, source: 'riot-client', region: 'ap',

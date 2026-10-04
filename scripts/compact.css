@@ -31,3 +31,15 @@
 :root .detail-art { padding: 12px; margin-block: 12px; }
 :root .detail-art img { height: 120px; }
 :root .detail-price { font-size: 20px; }
+:root .market-switch { margin-bottom: 8px; gap: 6px; }
+:root .page-heading { justify-content: space-between; }
+:root .weapon-art { height: 66px; }
+:root body[data-market='night-market'] .shop-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+:root body[data-market='night-market'] .weapon-art { height: 48px; padding: 6px; }
+:root body[data-market='night-market'] .skin-name { font-size: 11px; }
+:root body[data-market='night-market'] .card-content { padding: 6px; gap: 3px; }
+:root body[data-market='night-market'] .card-price { font-size: 14px; }
+:root body[data-market='night-market'] .discount { font-size: 10px; }
+:root body[data-market='night-market'] .discount del { display: block; }
+:root body[data-market='night-market']:has(#preview-button[hidden]) .shop-section::after { content: 'Riotでログインすると、ナイトマーケットを確認できます。'; }
+:root body[data-market='night-market']:has(#load-button[data-state='loading']):has(#preview-button[hidden]) .shop-section::after { content: 'ナイトマーケットに接続しています…'; }

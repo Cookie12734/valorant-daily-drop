@@ -24,10 +24,14 @@
   </header>
   <main class="page" id="main">
     <div class="page-heading">
-      <div><div class="date-line"><time id="today"></time><span class="slash">/</span><span>VALORANT</span></div><h1>今日のショップ<span class="title-period">.</span></h1></div>
+      <div><div class="date-line"><time id="today"></time><span class="slash">/</span><span>VALORANT</span></div><h1><span id="view-title">今日のショップ</span><span class="title-period">.</span></h1></div>
       <div class="countdown"><span class="small-label" id="clock-label">ショップ更新まで</span><div class="clock" id="clock">— : — : —</div><span class="small-label" id="expiry-label">接続後に表示</span></div>
     </div>
     <section class="shop-section" aria-labelledby="shop-heading">
+      <div class="market-switch" role="group" aria-label="表示するショップ">
+        <button type="button" class="button" id="daily-button" aria-pressed="true">ショップ</button>
+        <button type="button" class="button" id="night-button" aria-pressed="false">ナイトマーケット</button>
+      </div>
       <div class="shop-toolbar">
         <div class="section-title"><span class="section-marker" aria-hidden="true"></span><h2 id="shop-heading">デイリーオファー</h2><span class="offer-count" id="offer-count">04</span></div>
         <div class="toolbar-actions"><span class="connection-label" id="connection-label" role="status">未接続</span><button class="button quiet" id="logout-button" hidden><span id="logout-label">ログアウト</span></button><button class="button primary" id="load-button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5"/></svg><span id="load-label">Riotでログイン</span></button></div>

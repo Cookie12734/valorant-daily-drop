@@ -1,4 +1,16 @@
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function parseNightMarket(value) {
+  const fail = () => { throw new Error('ナイトマーケットの情報を読み取れません。再取得してください。'); };
+  if (!value || value.kind !== 'night-market' || value.schemaVersion !== 1 || !['riot-login', 'riot-client'].includes(value.source) || !['na', 'eu', 'ap', 'kr', 'pbe'].includes(value.region) || typeof value.active !== 'boolean' || !Array.isArray(value.offers) || value.offers.length > 6) fail();
+  const fetched = Date.parse(value.fetchedAt), expires = Date.parse(value.expiresAt);
+  if (!Number.isFinite(fetched) || fetched > Date.now() + 300000 || (value.active ? !Number.isFinite(expires) || expires < fetched || expires - fetched > 90 * 86400000 : value.expiresAt !== null || value.offers.length)) fail();
+  const offers = value.offers.map(offer => {
+    if (!offer || !UUID.test(offer.id) || ![offer.price, offer.originalPrice].every(p => Number.isSafeInteger(p) && p >= 0 && p <= 1000000) || offer.price > offer.originalPrice || !Number.isFinite(offer.discountPercent) || offer.discountPercent < 0 || offer.discountPercent > 100) fail();
+    return { id: offer.id.toLowerCase(), price: offer.price, originalPrice: offer.originalPrice, discountPercent: offer.discountPercent };
+  });
+  if (new Set(offers.map(o => o.id)).size !== offers.length) fail();
+  return { schemaVersion: 1, kind: 'night-market', source: value.source, region: value.region, fetchedAt: new Date(fetched).toISOString(), expiresAt: value.active ? new Date(expires).toISOString() : null, active: value.active, offers };
+}
 export function parseSnapshot(value) {
   if (!value || value.schemaVersion !== 1 || !['riot-client', 'riot-login'].includes(value.source) ||
       !['na', 'eu', 'ap', 'kr', 'latam', 'br', 'pbe'].includes(value.region) ||
