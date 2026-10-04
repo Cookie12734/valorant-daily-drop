@@ -38,6 +38,7 @@
       </div>
       <div class="notice" id="notice"><span class="notice-tag" id="notice-tag">PREVIEW</span><p id="notice-text">表示例です。あなたの今日のショップは接続後に表示されます。</p></div>
       <p id="error" class="error" role="alert" hidden></p>
+      <div class="purchase-result" id="purchase-result" hidden><p id="purchase-result-message" role="status" aria-live="polite"></p><button type="button" class="text-button" id="purchase-result-button">購入結果を確認</button></div>
       <div class="shop-grid" id="shop-grid" aria-busy="false"></div>
       <div class="shop-bottom"><p id="shop-status" role="status">プレビュー · 価格はショップ取得後に表示</p><button class="text-button" id="preview-button" hidden>プレビューに戻す</button></div>
     </section>
@@ -54,13 +55,22 @@
     <span class="dialog-label">CONNECT YOUR SHOP</span><h2 id="help-title">Riotにログインしてショップを見る</h2>
     <p>Windowsアプリを起動し、初回にRiotアカウントでログインしてください。保存したログイン状態が有効なら、次回から今日のショップを自動表示します。</p>
     <h3>Windowsアプリを使う</h3><ol><li><a href="https://github.com/Cookie12734/valorant-daily-drop/releases/latest" target="_blank" rel="noopener noreferrer">ダウンロードページ</a>からWindows用ZIPを取得して、すべて展開します。</li><li>展開したフォルダーの<code>DailyDrop.exe</code>を起動します。Node.jsのインストールやコマンド操作は不要です。</li><li>「Riotでログイン」を押し、アプリ内のRiot画面で認証。「ログイン状態を保持する」を有効にしてください。確認コードやCAPTCHAもRiot画面で入力します。</li><li>ログインが完了するとショップを自動表示します。終了するときはショップ画面を閉じます。</li></ol>
-    <p class="privacy-note">パスワードはRiotのログインページに入力し、このアプリでは保存しません。ショップ取得用のアクセストークンはこのアプリのメモリーで扱います。独自サーバーへ送信することはありません。次回から自動ログインするため、このPCにRiotのログインCookieを保持します。Riotのログイン画面で「ログイン状態を保持する」を有効にしてください。ログアウトすると保存情報も削除します。Riot側の期限切れ時は再入力が必要です。</p>
+    <p class="privacy-note">パスワードはRiotのログインページに入力し、このアプリでは保存しません。ショップ取得用のアクセストークンはこのアプリのメモリーで扱います。独自サーバーへ送信することはありません。次回から自動ログインするため、このPCにRiotのログインCookieを保持します。Riotのログイン画面で「ログイン状態を保持する」を有効にしてください。ログアウトすると保存した認証情報を削除します。購入結果の確認用記録は保持します。Riot側の期限切れ時は再入力が必要です。</p>
     <p class="small-label">Riot公式のログイン連携ではない非公式ツールです。Riot側の変更により利用できなくなる場合があります。</p>
     <details class="import-help"><summary>ショップファイルを読み込む（任意）</summary><p>取得済みの<code>shop.json</code>がある場合は、ファイル取得時点のショップも表示できます。従来のRiot Client経由では、ログインしてVALORANTを起動し、<code>npm run shop</code>で<code>exports/shop.json</code>を作成します。</p><p class="privacy-note">ファイルにはスキンID・価格・取得／更新時刻・リージョンを含みます。ファイルはブラウザー内で処理します。</p><button class="button quiet full-button" id="dialog-import">ショップファイルを読み込む</button></details>
   </dialog>
   <dialog id="skin-dialog" aria-labelledby="skin-title">
     <form method="dialog"><button class="close-button" aria-label="閉じる">×</button></form>
-    <span class="dialog-label" id="skin-weapon"></span><h2 id="skin-title"></h2><div class="detail-art"><img id="skin-image" alt="" width="720" height="300"></div><div class="detail-price" id="skin-price"></div><p class="small-label">購入はゲーム内のショップから行えます。</p>
+    <span class="dialog-label" id="skin-weapon"></span><h2 id="skin-title"></h2><div class="detail-art"><img id="skin-image" alt="" width="720" height="300"></div><div class="detail-price" id="skin-price"></div><p class="small-label" id="skin-purchase-unavailable">購入はゲーム内のショップから行えます。</p><button type="button" class="button primary full-button" id="skin-purchase-button" hidden>購入内容を確認</button>
+  </dialog>
+  <dialog id="purchase-dialog" aria-labelledby="purchase-title" aria-describedby="purchase-note">
+    <form method="dialog"><button class="close-button" id="purchase-close-button" aria-label="閉じる">×</button></form>
+    <span class="dialog-label">PURCHASE</span><h2 id="purchase-title">購入内容の確認</h2>
+    <p class="small-label" id="purchase-note">非公式の購入機能です。実際のRiot APIでの購入動作は未検証です。確定するとVPを消費します。</p>
+    <dl class="purchase-summary" id="purchase-summary" hidden><div><dt>スキン</dt><dd id="purchase-skin-name"></dd></div><div><dt>購入価格</dt><dd id="purchase-price"></dd></div><div><dt>現在の残高</dt><dd id="purchase-balance"></dd></div><div><dt>購入後の残高</dt><dd id="purchase-after-balance"></dd></div></dl>
+    <p class="small-label" id="purchase-expiry" hidden></p>
+    <p class="purchase-message" id="purchase-message" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"></p>
+    <div class="purchase-actions"><button type="button" class="button primary" id="purchase-confirm-button" hidden>購入を確定</button><button type="button" class="button primary" id="purchase-refresh-button" hidden>購入内容を再取得</button><button type="button" class="button primary" id="purchase-check-button" hidden>購入結果を確認</button><form method="dialog"><button class="button quiet" id="purchase-cancel-button">閉じる</button></form></div>
   </dialog>
   <noscript><p class="page">ショップの表示にはJavaScriptを有効にしてください。</p></noscript>
 </body>

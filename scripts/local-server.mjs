@@ -5,6 +5,7 @@ import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fetchShopSnapshot } from './riot-client.mjs';
 import { LoginError } from './riot-login.mjs';
+import { PurchaseError } from './purchase.mjs';
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
 
@@ -38,11 +39,12 @@ function json(response, status, data) {
   response.end(JSON.stringify(data));
 }
 
-async function emptyJsonBody(request) {
+async function jsonBody(request) {
   let body = '';
   for await (const chunk of request) { body += chunk; if (body.length > 1024) throw new Error('Body too large'); }
   const value = JSON.parse(body);
-  if (!value || Array.isArray(value) || typeof value !== 'object' || Object.keys(value).length) throw new Error('Invalid body');
+  if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error('Invalid body');
+  return value;
 }
 
 export async function createLocalServer({ directory = fileURLToPath(new URL('../dist/', import.meta.url)), loadShop = fetchShopSnapshot, auth } = {}) {
@@ -69,16 +71,28 @@ export async function createLocalServer({ directory = fileURLToPath(new URL('../
         json(response, 403, { error: 'このページから接続し直してください。' }); return;
       }
     }
-    if (path === '/api/status' && request.method === 'GET') { json(response, 200, { local: true, ...(auth ? { login: true, auth: auth.status() } : {}) }); return; }
+    if (path === '/api/status' && request.method === 'GET') { json(response, 200, { local: true, ...(auth ? { login: true, auth: auth.status() } : {}), ...(auth?.purchases ? { purchase: true } : {}) }); return; }
+    if (['/api/purchase/quote', '/api/purchase/confirm', '/api/purchase/status'].includes(path)) {
+      if (request.method !== 'POST') { response.setHeader('Allow', 'POST'); json(response, 405, { error: 'POST が必要です。' }); return; }
+      if (!validShopRequest(request, port)) { json(response, 403, { error: 'このページから接続し直してください。' }); return; }
+      let body;
+      try { body = await jsonBody(request); } catch { json(response, 400, { error: '購入情報を読み取れません。' }); return; }
+      if (!auth?.purchases || auth.status().state !== 'signed_in') { json(response, 401, { error: 'デスクトップアプリでRiotにログインしてください。' }); return; }
+      const action = path.split('/').at(-1);
+      if (action === 'status' && Object.keys(body).length) { json(response, 400, { error: '空の JSON オブジェクトが必要です。' }); return; }
+      try { json(response, 200, await auth.purchases[action](body)); }
+      catch (error) { json(response, 409, { error: error instanceof PurchaseError ? error.message : '購入処理を完了できません。購入結果を確認してください。' }); }
+      return;
+    }
     if (['/api/shop', '/api/night-market', '/api/login', '/api/logout'].includes(path)) {
       if (request.method !== 'POST') { response.setHeader('Allow', 'POST'); json(response, 405, { error: 'POST が必要です。' }); return; }
       if (!validShopRequest(request, port)) { json(response, 403, { error: 'このページから接続し直してください。' }); return; }
-      try { await emptyJsonBody(request); } catch { json(response, 400, { error: '空の JSON オブジェクトが必要です。' }); return; }
+      try { if (Object.keys(await jsonBody(request)).length) throw new Error('Invalid body'); } catch { json(response, 400, { error: '空の JSON オブジェクトが必要です。' }); return; }
       if (path === '/api/login' || path === '/api/logout') {
         if (!auth) { json(response, 503, { error: 'npm startでログイン補助アプリを起動してください。' }); return; }
         try {
           if (path === '/api/login') auth.start(); else await auth.logout();
-          json(response, path === '/api/login' ? 202 : 200, { local: true, login: true, auth: auth.status() });
+          json(response, path === '/api/login' ? 202 : 200, { local: true, login: true, auth: auth.status(), ...(auth.purchases ? { purchase: true } : {}) });
         } catch (error) { json(response, 429, { error: error instanceof LoginError ? error.message : '操作できませんでした。' }); }
         return;
       }

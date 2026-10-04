@@ -31,6 +31,11 @@
 :root .detail-art { padding: 12px; margin-block: 12px; }
 :root .detail-art img { height: 120px; }
 :root .detail-price { font-size: 20px; }
+:root .purchase-result { padding: 6px 8px; margin-bottom: 8px; font-size: 11px; }
+:root .purchase-result .text-button { min-height: 32px; font-size: 11px; }
+:root .purchase-summary { margin-top: 10px; }
+:root .purchase-summary div { gap: 10px; padding-block: 4px; }
+:root .purchase-actions { gap: 6px; margin-top: 10px; }
 :root .market-switch { margin-bottom: 8px; gap: 6px; }
 :root .page-heading { justify-content: space-between; }
 :root .weapon-art { height: 66px; }

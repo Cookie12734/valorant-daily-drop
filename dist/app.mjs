@@ -25,6 +25,7 @@ const preview = [
   { id: '99b0edce-48db-b898-1d6f-0fa89795226d', name: 'クロナミの刃', weapon: '近接武器', image: '/assets/kuronami.png', price: null },
 ];
 let snapshot = null;
+let snapshotMode = 'preview';
 let market = 'daily';
 let local = false;
 let login = false;
@@ -35,6 +36,14 @@ let operation = 0;
 let pollTimer;
 let loginStarted = 0;
 let logoutState = '';
+let purchaseCapable = false;
+let purchaseBusy = false;
+let selectedOffer = null;
+let purchaseOffer = null;
+let purchaseQuote = null;
+let purchaseState = 'idle';
+let purchaseMessage = '';
+let purchaseStatusChecked = false;
 const metadata = new Map();
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' });
 const timeFormat = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -48,10 +57,158 @@ function node(tag, className, text) {
 function priceLabel(price) {
   return price === null ? '—' : new Intl.NumberFormat('ja-JP').format(price);
 }
+function canPurchase() {
+  return purchaseCapable && local && login && authState === 'signed_in' && snapshotMode === 'local' && snapshot && market === 'daily' && !expired && !logoutState;
+}
+function unresolvedPurchase() {
+  return ['pending', 'unknown'].includes(purchaseState);
+}
+function validPurchaseQuote() {
+  return purchaseQuote && purchaseOffer && purchaseQuote.skinId === purchaseOffer.id && Date.parse(purchaseQuote.expiresAt) > Date.now();
+}
+function updatePurchaseControls() {
+  const available = Boolean(canPurchase());
+  const ready = Boolean(validPurchaseQuote());
+  $('skin-purchase-button').hidden = !available;
+  $('skin-purchase-button').disabled = purchaseBusy || loading;
+  $('skin-purchase-unavailable').hidden = available;
+  $('purchase-dialog').setAttribute('aria-busy', String(purchaseBusy));
+  $('purchase-dialog').dataset.state = purchaseState;
+  $('purchase-summary').hidden = !purchaseQuote || !purchaseOffer;
+  $('purchase-expiry').hidden = !purchaseQuote || purchaseState !== 'idle';
+  if (purchaseQuote && purchaseOffer) {
+    $('purchase-skin-name').textContent = purchaseOffer.name;
+    $('purchase-price').textContent = `${priceLabel(purchaseQuote.price)} VP`;
+    $('purchase-balance').textContent = `${priceLabel(purchaseQuote.balance)} VP`;
+    $('purchase-after-balance').textContent = `${priceLabel(purchaseQuote.balance - purchaseQuote.price)} VP`;
+    $('purchase-expiry').textContent = ready ? 'この確認内容は短時間で失効します。価格と残高を確認して確定してください。' : '確認内容の期限が切れました。再取得してください。';
+  }
+  $('purchase-message').textContent = purchaseMessage;
+  $('purchase-confirm-button').hidden = !purchaseQuote || purchaseState !== 'idle';
+  $('purchase-confirm-button').disabled = purchaseBusy || loading || !available || !ready || !purchaseQuote || purchaseQuote.balance < purchaseQuote.price;
+  $('purchase-confirm-button').textContent = purchaseQuote ? `${priceLabel(purchaseQuote.price)} VPで購入を確定` : '購入を確定';
+  $('purchase-refresh-button').hidden = !purchaseOffer || purchaseState !== 'idle' || ready;
+  $('purchase-refresh-button').disabled = purchaseBusy || loading || !available;
+  $('purchase-check-button').hidden = !unresolvedPurchase();
+  $('purchase-check-button').disabled = purchaseBusy || !purchaseCapable || authState !== 'signed_in';
+  $('purchase-cancel-button').textContent = purchaseQuote && purchaseState === 'idle' ? 'キャンセル' : '閉じる';
+  for (const button of document.querySelectorAll('dialog form[method="dialog"] button')) button.disabled = purchaseBusy;
+  $('purchase-result').hidden = !purchaseCapable || authState !== 'signed_in' || purchaseState === 'idle';
+  $('purchase-result-message').textContent = purchaseMessage;
+  $('purchase-result-button').disabled = purchaseBusy;
+  $('purchase-result-button').textContent = unresolvedPurchase() ? '購入結果を確認' : '購入結果を見る';
+}
+function setPurchaseBusy(busy) {
+  purchaseBusy = busy;
+  updateControls();
+}
+function showPurchaseDialog() {
+  $('skin-dialog').close();
+  $('purchase-title').textContent = purchaseOffer ? purchaseOffer.name : '購入結果';
+  updatePurchaseControls();
+  if (!$('purchase-dialog').open) $('purchase-dialog').showModal();
+  $('purchase-message').focus();
+}
+async function purchaseRequest(path, body = {}) {
+  const response = await localFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), credentials: 'same-origin', signal: AbortSignal.timeout(60000) });
+  const data = await response.json();
+  if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : '購入内容を確認できませんでした。');
+  return data;
+}
+function applyPurchaseResult(result) {
+  if (!['idle', 'complete', 'pending', 'unknown', 'failed'].includes(result?.state)) throw new Error('購入結果を読み取れませんでした。');
+  purchaseState = result.state;
+  purchaseMessage = typeof result.message === 'string' && result.message ? result.message : {
+    idle: '', complete: '購入が完了しました。', pending: '購入の結果を確認中です。再送信せず、結果を確認してください。',
+    unknown: '購入の結果がまだ確認できません。再送信せず、結果を確認してください。', failed: '購入は完了しませんでした。',
+  }[purchaseState];
+  purchaseStatusChecked = true;
+  if (purchaseState !== 'idle') purchaseQuote = null;
+  updatePurchaseControls();
+}
+async function checkPurchaseStatus() {
+  const previous = purchaseState;
+  try {
+    const result = await purchaseRequest('/api/purchase/status');
+    applyPurchaseResult(result);
+    return previous !== 'complete' && purchaseState === 'complete';
+  } catch (error) {
+    purchaseState = 'unknown';
+    purchaseStatusChecked = false;
+    purchaseMessage = ['TimeoutError', 'TypeError', 'SyntaxError'].includes(error.name) ? 'アプリに接続できず、購入の結果を確認できません。再送信せず、結果を確認してください。' : error.message;
+    updatePurchaseControls();
+    return false;
+  }
+}
+async function requestPurchaseQuote(offer) {
+  if (purchaseBusy || loading || !canPurchase() || !offer || !Number.isSafeInteger(offer.price)) return;
+  if (unresolvedPurchase()) { showPurchaseDialog(); return; }
+  purchaseOffer = { ...offer };
+  purchaseQuote = null;
+  purchaseState = 'idle';
+  purchaseMessage = '購入の未確定結果と最新の価格・残高を確認しています…';
+  showPurchaseDialog();
+  setPurchaseBusy(true);
+  try {
+    await checkPurchaseStatus();
+    if (!purchaseStatusChecked || unresolvedPurchase()) {
+      purchaseOffer = null;
+      showPurchaseDialog();
+      return;
+    }
+    purchaseState = 'idle';
+    purchaseMessage = '最新の価格と残高を確認しています…';
+    updatePurchaseControls();
+    const quote = await purchaseRequest('/api/purchase/quote', { skinId: offer.id, expectedPrice: offer.price });
+    if (purchaseOffer.id !== offer.id || !canPurchase()) return;
+    if (!quote || typeof quote.quoteId !== 'string' || !quote.quoteId || quote.skinId !== offer.id || quote.price !== offer.price || !Number.isSafeInteger(quote.price) || quote.price <= 0 || !Number.isSafeInteger(quote.balance) || quote.balance < 0 || typeof quote.expiresAt !== 'string' || !Number.isFinite(Date.parse(quote.expiresAt)) || Date.parse(quote.expiresAt) <= Date.now()) throw new Error('購入内容が変更されたか、期限が切れました。ショップを更新して再確認してください。');
+    purchaseQuote = quote;
+    purchaseMessage = quote.balance < quote.price ? 'VP残高が不足しています。購入は確定できません。' : 'このスキンを、この価格で購入します。内容を確認してから確定してください。';
+  } catch (error) {
+    purchaseQuote = null;
+    purchaseMessage = ['TimeoutError', 'TypeError', 'SyntaxError'].includes(error.name) ? '購入内容を取得できませんでした。接続を確認して再取得してください。' : error.message;
+  } finally {
+    setPurchaseBusy(false);
+    if ($('purchase-dialog').open) $('purchase-message').focus();
+  }
+}
+async function confirmPurchase() {
+  if (purchaseBusy || loading || !canPurchase() || !validPurchaseQuote() || !purchaseStatusChecked || purchaseQuote.balance < purchaseQuote.price || unresolvedPurchase()) { updatePurchaseControls(); return; }
+  const quoteId = purchaseQuote.quoteId;
+  // Consume the UI quote before sending: a lost response must never resend it.
+  purchaseQuote = null;
+  purchaseState = 'pending';
+  purchaseMessage = '購入を送信しています。画面を閉じずにお待ちください…';
+  setPurchaseBusy(true);
+  try {
+    const result = await purchaseRequest('/api/purchase/confirm', { quoteId });
+    if (!['complete', 'pending', 'unknown', 'failed'].includes(result?.state)) throw new Error('購入の結果を読み取れませんでした。再送信せず、結果を確認してください。');
+    applyPurchaseResult(result);
+  } catch (error) {
+    purchaseState = 'unknown';
+    purchaseStatusChecked = false;
+    purchaseMessage = ['TimeoutError', 'TypeError', 'SyntaxError'].includes(error.name) ? '接続が途切れたため、購入の結果は不明です。再送信せず、結果を確認してください。' : error.message;
+  } finally {
+    setPurchaseBusy(false);
+    if ($('purchase-dialog').open) $('purchase-message').focus();
+  }
+  if (purchaseState === 'complete' && market === 'daily') await getShop();
+}
+async function refreshPurchaseResult() {
+  if (purchaseBusy || !purchaseCapable || authState !== 'signed_in') return;
+  setPurchaseBusy(true);
+  const completed = await checkPurchaseStatus();
+  if (purchaseState === 'idle') purchaseMessage = '未確定の購入はありません。スキンを選び、購入内容を改めて確認できます。';
+  setPurchaseBusy(false);
+  if ($('purchase-dialog').open) $('purchase-message').focus();
+  if (completed && market === 'daily') await getShop();
+}
 function renderCards(offers) {
   $('shop-grid').replaceChildren(...offers.map((offer, index) => {
     const card = node('button', 'skin-card');
     card.type = 'button';
+    card.disabled = purchaseBusy;
+    card.dataset.skinId = offer.id;
     card.dataset.weapon = offer.weapon;
     card.setAttribute('aria-label', `${offer.name}、${offer.price === null ? '価格未取得' : `${priceLabel(offer.price)} VP`}、詳細を見る`);
     const top = node('div', 'card-top');
@@ -80,12 +237,15 @@ function renderCards(offers) {
     content.append(price);
     card.append(top, art, content);
     card.addEventListener('click', () => {
+      if (purchaseBusy) return;
+      selectedOffer = offer;
       $('skin-title').textContent = offer.name;
       $('skin-weapon').textContent = offer.weapon;
       $('skin-image').hidden = !offer.image;
       if (offer.image) $('skin-image').src = offer.image;
       $('skin-image').alt = offer.name;
       $('skin-price').textContent = offer.price === null ? '価格未取得' : `${priceLabel(offer.price)} VP`;
+      updatePurchaseControls();
       $('skin-dialog').showModal();
     });
     return card;
@@ -100,20 +260,24 @@ function showError(message) {
 }
 function updateControls() {
   const pending = login && authState === 'pending';
-  $('load-button').disabled = loading || pending || Boolean(logoutState);
-  for (const id of ['daily-button', 'night-button']) $(id).disabled = loading || pending || Boolean(logoutState);
+  $('load-button').disabled = purchaseBusy || loading || pending || Boolean(logoutState);
+  for (const id of ['daily-button', 'night-button']) $(id).disabled = purchaseBusy || loading || pending || Boolean(logoutState);
   $('logout-button').hidden = !login || !logoutState && !['pending', 'signed_in', 'error'].includes(authState);
-  $('logout-button').disabled = Boolean(logoutState);
+  $('logout-button').disabled = purchaseBusy || Boolean(logoutState);
   $('logout-label').textContent = logoutState ? '終了中…' : pending ? 'キャンセル' : 'ログアウト';
-  $('dialog-import').disabled = loading || pending || Boolean(logoutState);
-  $('preview-button').disabled = loading;
-  $('shop-grid').setAttribute('aria-busy', String(loading));
+  $('dialog-import').disabled = purchaseBusy || loading || pending || Boolean(logoutState);
+  $('file-input').disabled = purchaseBusy || loading || pending || Boolean(logoutState);
+  $('preview-button').disabled = purchaseBusy || loading;
+  for (const id of ['help-button', 'setup-button']) $(id).disabled = purchaseBusy;
+  for (const card of $('shop-grid').querySelectorAll('button')) card.disabled = purchaseBusy;
+  $('shop-grid').setAttribute('aria-busy', String(purchaseBusy || loading));
   $('load-label').textContent = logoutState ? '終了中…' : loading ? 'ショップを取得中…' : pending ? 'ログイン待ち…' :
     login && authState === 'signed_in' ? 'ショップを更新' : local && !login ? 'ショップを取得' : 'Riotでログイン';
   $('load-button').dataset.state = loading || pending ? 'loading' : $('error').hidden ? 'default' : 'error';
   if (pending) $('connection-label').textContent = 'ログイン待ち';
   else if (login && authState === 'signed_in' && !snapshot) $('connection-label').textContent = 'ログイン済み';
   else if (!snapshot) $('connection-label').textContent = '未接続';
+  updatePurchaseControls();
 }
 function setLoading(busy) {
   loading = busy;
@@ -138,6 +302,8 @@ async function displaySnapshot(value, mode, currentOperation) {
   const offers = results.map((result, index) => result.status === 'fulfilled' ? result.value :
     { ...next.offers[index], name: `スキン ${index + 1}`, weapon: '情報未取得', image: null });
   snapshot = next;
+  snapshotMode = mode;
+  purchaseQuote = null;
   expired = false;
   renderCards(offers);
   $('connection-label').textContent = mode === 'local' ? `${next.region.toUpperCase()} · 接続済み` : `${next.region.toUpperCase()} · ファイル`;
@@ -147,8 +313,13 @@ async function displaySnapshot(value, mode, currentOperation) {
   $('expiry-label').textContent = next.expiresAt ? `${timeFormat.format(new Date(next.expiresAt))} JST ${market === 'daily' ? '更新' : '終了'}` : '開催期間なし';
   $('preview-button').hidden = false;
   tick();
+  updatePurchaseControls();
 }
 function tick() {
+  if (purchaseQuote && !validPurchaseQuote()) {
+    purchaseMessage = '確認内容の期限が切れました。購入内容を再取得してください。';
+    updatePurchaseControls();
+  }
   if (!snapshot) return;
   if (snapshot.expiresAt === null) { $('clock').textContent = '開催なし'; return; }
   $('clock').textContent = remainingTime(snapshot.expiresAt);
@@ -158,10 +329,14 @@ function tick() {
     $('notice-text').textContent = 'このショップの表示期限が切れました。最新のショップを再取得してください。';
     $('connection-label').textContent = '期限切れ';
     $('shop-status').textContent = '表示中のオファーは過去のショップです。最新情報を再取得してください。';
+    updatePurchaseControls();
   }
 }
 function resetPreview() {
+  if (purchaseBusy) return;
   snapshot = null;
+  snapshotMode = 'preview';
+  purchaseQuote = null;
   $('error').hidden = true;
   $('clock').textContent = '— : — : —';
   $('connection-label').textContent = '未接続';
@@ -175,6 +350,8 @@ function resetPreview() {
   updateControls();
 }
 async function getShop() {
+  if (purchaseBusy) return;
+  purchaseQuote = null;
   const currentOperation = ++operation;
   $('error').hidden = true;
   setLoading(true);
@@ -194,6 +371,7 @@ async function getShop() {
 function applyStatus(status) {
   local = status?.local === true;
   login = local && status.login === true;
+  purchaseCapable = login && status.purchase === true;
   const previous = authState;
   authState = login && ['signed_out', 'pending', 'signed_in', 'error'].includes(status.auth?.state) ? status.auth.state : 'signed_out';
   if (authState !== 'error') $('error').hidden = true;
@@ -204,7 +382,17 @@ function applyStatus(status) {
   }
   if (login && authState === 'error') showError(typeof status.auth.error === 'string' ? status.auth.error : 'ログインできませんでした。もう一度お試しください。');
   updateControls();
-  if (login && authState === 'signed_in' && previous !== 'signed_in') getShop();
+  if (login && authState === 'signed_in' && previous !== 'signed_in') {
+    const currentOperation = operation;
+    (async () => {
+      if (purchaseCapable) {
+        setPurchaseBusy(true);
+        await checkPurchaseStatus();
+        setPurchaseBusy(false);
+      }
+      if (currentOperation === operation && authState === 'signed_in') getShop();
+    })();
+  }
 }
 async function pollLogin() {
   if (authState !== 'pending') return;
@@ -229,6 +417,7 @@ async function pollLogin() {
   }
 }
 async function startLogin() {
+  if (purchaseBusy) return;
   const currentOperation = ++operation;
   $('error').hidden = true;
   authState = 'pending';
@@ -248,7 +437,7 @@ async function startLogin() {
   }
 }
 async function logout() {
-  if (logoutState) return;
+  if (purchaseBusy || logoutState) return;
   ++operation;
   clearTimeout(pollTimer);
   logoutState = authState;
@@ -256,9 +445,15 @@ async function logout() {
   loading = false;
   resetPreview();
   $('skin-dialog').close();
+  $('purchase-dialog').close();
   try {
     const response = await localFetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error('logout');
+    purchaseQuote = null;
+    purchaseOffer = null;
+    purchaseState = 'idle';
+    purchaseMessage = '';
+    purchaseStatusChecked = false;
   } catch {
     authState = logoutState;
     if (authState === 'pending') pollTimer = setTimeout(pollLogin, 1000);
@@ -269,7 +464,7 @@ async function logout() {
   }
 }
 $('load-button').addEventListener('click', () => {
-  if (loading || logoutState || authState === 'pending') return;
+  if (purchaseBusy || loading || logoutState || authState === 'pending') return;
   if (!local) { $('help-dialog').showModal(); return; }
   if (login && authState !== 'signed_in') startLogin();
   else getShop();
@@ -285,16 +480,17 @@ function selectMarket(next) {
   $('clock-label').textContent = market === 'daily' ? 'ショップ更新まで' : '開催終了まで';
 }
 for (const [id, next] of [['daily-button', 'daily'], ['night-button', 'night-market']]) $(id).addEventListener('click', () => {
-  if (market === next || loading || logoutState || authState === 'pending') return;
+  if (purchaseBusy || market === next || loading || logoutState || authState === 'pending') return;
   ++operation;
   $('skin-dialog').close();
+  $('purchase-dialog').close();
   selectMarket(next);
   resetPreview();
   if (local && (!login || authState === 'signed_in')) getShop();
 });
 $('file-input').addEventListener('change', async event => {
   const file = event.target.files[0];
-  if (!file || loading || logoutState || authState === 'pending') return;
+  if (!file || purchaseBusy || loading || logoutState || authState === 'pending') return;
   const currentOperation = ++operation;
   $('error').hidden = true;
   setLoading(true);
@@ -310,12 +506,23 @@ $('file-input').addEventListener('change', async event => {
   finally { if (currentOperation === operation) setLoading(false); }
   event.target.value = '';
 });
-for (const id of ['help-button', 'setup-button']) $(id).addEventListener('click', () => $('help-dialog').showModal());
-$('dialog-import').addEventListener('click', () => { $('help-dialog').close(); $('file-input').click(); });
+for (const id of ['help-button', 'setup-button']) $(id).addEventListener('click', () => { if (!purchaseBusy) $('help-dialog').showModal(); });
+$('dialog-import').addEventListener('click', () => { if (!purchaseBusy) { $('help-dialog').close(); $('file-input').click(); } });
 $('preview-button').addEventListener('click', resetPreview);
+$('skin-purchase-button').addEventListener('click', () => requestPurchaseQuote(selectedOffer));
+$('purchase-refresh-button').addEventListener('click', () => requestPurchaseQuote(purchaseOffer));
+$('purchase-confirm-button').addEventListener('click', confirmPurchase);
+$('purchase-check-button').addEventListener('click', refreshPurchaseResult);
+$('purchase-result-button').addEventListener('click', () => { if (!purchaseBusy) showPurchaseDialog(); });
+$('purchase-dialog').addEventListener('close', () => {
+  if (purchaseState === 'idle') { purchaseQuote = null; updatePurchaseControls(); }
+  const card = [...$('shop-grid').querySelectorAll('button')].find(button => button.dataset.skinId === selectedOffer?.id);
+  (!$('purchase-result').hidden ? $('purchase-result-button') : card || $('load-button')).focus();
+});
+for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('cancel', event => { if (purchaseBusy) event.preventDefault(); });
 for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', event => {
   const rect = dialog.getBoundingClientRect();
-  if (event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) dialog.close();
+  if (!purchaseBusy && event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) dialog.close();
 });
 $('today').textContent = dateFormat.format(new Date());
 $('today').dateTime = new Date().toISOString();

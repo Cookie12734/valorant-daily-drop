@@ -70,7 +70,7 @@ const partition = session.fromPartition('persist:riot-login', { cache: false });
 partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 partition.setPermissionCheckHandler(() => false);
 partition.on('will-download', event => event.preventDefault());
-const auth = createLoginController({ openLogin: () => openLogin(partition, mainWindow), clearSavedLogin: async () => {
+const auth = createLoginController({ purchaseFile: join(profile, 'purchase-state.json'), openLogin: () => openLogin(partition, mainWindow), clearSavedLogin: async () => {
   await partition.clearStorageData();
   await partition.cookies.flushStore();
 } });

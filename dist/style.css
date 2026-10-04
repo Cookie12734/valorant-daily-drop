@@ -104,6 +104,18 @@ dialog code { font-family: var(--font-display); font-size: var(--text-small); wo
 .detail-art { background: var(--color-paper-3); color: var(--color-ink); padding: var(--space-lg); border-radius: var(--radius-small); margin-block: var(--space-lg); }
 .detail-art img { display: block; width: 100%; height: 220px; object-fit: contain; }
 .detail-price { font-family: var(--font-display); font-size: var(--text-clock); font-variant-numeric: tabular-nums; margin-block-end: var(--space-sm); }
+.purchase-result { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); border-inline-start: 2px solid var(--color-accent); padding: var(--space-sm) var(--space-md); background: var(--color-paper-2); margin-block-end: var(--space-md); font-size: var(--text-small); }
+.purchase-result p { overflow-wrap: anywhere; }
+.purchase-result .text-button { flex-shrink: 0; }
+#purchase-dialog { overflow-y: auto; }
+.purchase-summary { margin-block: var(--space-lg) var(--space-sm); font-size: var(--text-small); }
+.purchase-summary div { display: flex; justify-content: space-between; gap: var(--space-md); padding-block: var(--space-xs); border-block-end: 1px solid var(--color-rule); }
+.purchase-summary dt { flex-shrink: 0; color: var(--color-muted); }
+.purchase-summary dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.purchase-message { margin-block: var(--space-sm); overflow-wrap: anywhere; }
+.purchase-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-block-start: var(--space-md); }
+.purchase-actions .button { white-space: normal; }
+.purchase-actions form { margin: 0; }
 @media (hover: hover) {
   .button:hover:not(:disabled) { border-color: var(--color-ink); }
   .button.primary:hover:not(:disabled) { opacity: .9; }

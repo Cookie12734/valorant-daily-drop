@@ -25,11 +25,11 @@ app.once('browser-window-created', (_event, window) => {
       assert.equal(preferences.contextIsolation, true);
       assert.equal(preferences.sandbox, true);
       assert.equal((await fetch(`${origin}/api/status`)).status, 403, 'native callers cannot read status');
-      for (const path of ['/api/login', '/api/logout', '/api/shop', '/api/night-market']) {
+      for (const path of ['/api/login', '/api/logout', '/api/shop', '/api/night-market', '/api/purchase/quote', '/api/purchase/confirm', '/api/purchase/status']) {
         assert.equal((await fetch(origin + path, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
       }
       const status = await window.webContents.executeJavaScript(`fetch('/api/status').then(r => r.json())`);
-      assert.deepEqual(status, { local: true, login: true, auth: { state: 'signed_out' } });
+      assert.deepEqual(status, { local: true, login: true, purchase: true, auth: { state: 'signed_out' } });
       assert.equal(new URL(window.webContents.getURL()).hash, '');
       assert.equal(await window.webContents.executeJavaScript(`sessionStorage.length`), 0);
       const page = await (await fetch(origin)).text();
@@ -50,13 +50,17 @@ app.once('browser-window-created', (_event, window) => {
       const switching = await window.webContents.executeJavaScript(`(async () => {
         const originalFetch = window.fetch;
         let active = true;
+        let purchaseResult = 'idle', confirmations = 0, loseResponse = false;
         const offers = Array.from({length:6}, (_, i) => ({id:'00000000-0000-0000-0000-' + String(i + 1).padStart(12,'0'), price:1000, originalPrice:2000, discountPercent:50}));
         const base = {schemaVersion:1,source:'riot-login',region:'ap',fetchedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+3600000).toISOString()};
         window.fetch = async (url, options) => {
           if (String(url).startsWith('https://valorant-api.com/')) return Response.json({data:{displayName:'テスト ヴァンダル',displayIcon:'https://media.valorant-api.com/test.png'}});
-          if (url === '/api/login') return Response.json({local:true,login:true,auth:{state:'signed_in'}});
+          if (url === '/api/login') return Response.json({local:true,login:true,purchase:true,auth:{state:'signed_in'}});
           if (url === '/api/shop') return Response.json({...base,offers:offers.slice(0,4)});
           if (url === '/api/night-market') return Response.json({...base,kind:'night-market',active,expiresAt:active?base.expiresAt:null,offers:active?offers:[]});
+          if (url === '/api/purchase/status') return Response.json({state:purchaseResult});
+          if (url === '/api/purchase/quote') { const input=JSON.parse(options.body); return Response.json({quoteId:crypto.randomUUID(),skinId:input.skinId,price:input.expectedPrice,balance:5000,expiresAt:new Date(Date.now()+60000).toISOString()}); }
+          if (url === '/api/purchase/confirm') { confirmations++; purchaseResult=loseResponse?'unknown':'pending'; if(loseResponse) throw new TypeError('test lost response'); return Response.json({state:purchaseResult}); }
           return originalFetch(url, options);
         };
         const wait = async predicate => { for(let i=0;i<100;i++){ if(predicate()) return; await new Promise(r=>setTimeout(r,20)); } throw Error('UI transition timed out'); };
@@ -74,10 +78,42 @@ app.once('browser-window-created', (_event, window) => {
           document.querySelector('#night-button').click();
           await wait(()=>document.querySelector('#clock').textContent==='開催なし');
           const inactive=document.querySelector('#shop-grid').textContent.includes('開催されていません') && !document.querySelectorAll('.skin-card').length;
-          return {selected,discounted,daily,inactive,sixFits};
+          document.querySelector('#daily-button').click();
+          await wait(()=>document.querySelectorAll('.skin-card').length===4 && !document.querySelector('#load-button').disabled);
+          document.querySelector('.skin-card').click();
+          document.querySelector('#skin-purchase-button').click();
+          await wait(()=>document.querySelector('#purchase-confirm-button').disabled===false);
+          const quoteShowsPrice=document.querySelector('#purchase-price').textContent==='1,000 VP' && document.querySelector('#purchase-after-balance').textContent==='4,000 VP';
+          const dialogRect=document.querySelector('#purchase-dialog').getBoundingClientRect();
+          const dialogFits=dialogRect.left>=0 && dialogRect.right<=innerWidth && dialogRect.bottom<=innerHeight;
+          document.querySelector('#purchase-cancel-button').click();
+          const cancelledWithoutCharge=confirmations===0 && !document.querySelector('#purchase-dialog').open;
+          document.querySelector('.skin-card').click();
+          document.querySelector('#skin-purchase-button').click();
+          await wait(()=>document.querySelector('#purchase-confirm-button').disabled===false);
+          document.querySelector('#purchase-confirm-button').click();
+          document.querySelector('#purchase-confirm-button').click();
+          await wait(()=>!document.querySelector('#purchase-check-button').hidden && !document.querySelector('#purchase-check-button').disabled);
+          const singleSend=confirmations===1;
+          purchaseResult='complete';
+          document.querySelector('#purchase-check-button').click();
+          await wait(()=>document.querySelector('#purchase-dialog').dataset.state==='complete' && !document.querySelector('#load-button').disabled);
+          const completed=!document.querySelector('#purchase-result').hidden;
+          document.querySelector('#purchase-cancel-button').click();
+          loseResponse=true;
+          document.querySelectorAll('.skin-card')[1].click();
+          document.querySelector('#skin-purchase-button').click();
+          await wait(()=>document.querySelector('#purchase-confirm-button').disabled===false);
+          document.querySelector('#purchase-confirm-button').click();
+          await wait(()=>document.querySelector('#purchase-dialog').dataset.state==='unknown' && !document.querySelector('#purchase-check-button').disabled);
+          document.querySelector('#purchase-confirm-button').click();
+          document.querySelector('#purchase-check-button').click();
+          await wait(()=>!document.querySelector('#purchase-check-button').disabled);
+          const noRetry=confirmations===2 && document.querySelector('#purchase-dialog').dataset.state==='unknown';
+          return {selected,discounted,daily,inactive,sixFits,quoteShowsPrice,dialogFits,cancelledWithoutCharge,singleSend,completed,noRetry};
         } finally { window.fetch=originalFetch; }
       })()`);
-      assert.deepEqual(switching, { selected: true, discounted: true, daily: true, inactive: true, sixFits: true });
+      assert.deepEqual(switching, { selected: true, discounted: true, daily: true, inactive: true, sixFits: true, quoteShowsPrice: true, dialogFits: true, cancelledWithoutCharge: true, singleSend: true, completed: true, noRetry: true });
       // Another renderer, even in the same Electron session, gets no capability.
       const otherWindow = new BrowserWindow({ show: false, webPreferences: { session: window.webContents.session, sandbox: true, contextIsolation: true, nodeIntegration: false } });
       try {
@@ -101,9 +137,13 @@ app.once('browser-window-created', (_event, window) => {
         for (let i = 0; i < 100 && !browserCalls; i++) await new Promise(resolve => setTimeout(resolve, 20));
         assert.equal(browserCalls, 1);
       } finally { browser.destroy(); await new Promise(resolve => helper.close(resolve)); }
-      if (process.env.DAILY_DROP_SMOKE_IMAGE) writeFileSync(process.env.DAILY_DROP_SMOKE_IMAGE, (await window.webContents.capturePage()).toPNG());
+      if (process.env.DAILY_DROP_SMOKE_IMAGE) {
+        window.showInactive();
+        await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        writeFileSync(process.env.DAILY_DROP_SMOKE_IMAGE, (await window.webContents.capturePage()).toPNG());
+      }
       passed = true;
-      console.log('PASS: compact layout, shop/night switching, six discounts, inactive market, isolated session and secure renderer');
+      console.log('PASS: compact layout, shop/night switching, purchase confirmation/cancel/results/no-retry, isolated session and protected local API');
       window.close();
     } catch (error) { console.error(error); app.exit(1); }
   });
