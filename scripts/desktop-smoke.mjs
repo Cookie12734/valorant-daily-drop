@@ -18,7 +18,7 @@ app.once('browser-window-created', (_event, window) => {
     try {
       const origin = new URL(window.webContents.getURL()).origin;
       assert.equal(new URL(origin).hostname, '127.0.0.1');
-      assert.match(window.webContents.getTitle(), /DAILY DROP/);
+      assert.equal(window.webContents.getTitle(), 'DAILY DROP');
       const preferences = window.webContents.getLastWebPreferences();
       assert.equal(preferences.nodeIntegration, false);
       assert.equal(preferences.contextIsolation, true);

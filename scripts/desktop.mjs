@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { createLocalServer } from './local-server.mjs';
 import { authorizationRequest, parseAuthRedirect, createLoginController, LoginError } from './riot-login.mjs';
 
+app.setName('DAILY DROP');
+
 // A real, isolated Riot page handles passwords, MFA and CAPTCHA. No preload or DOM scraping.
 function openLogin(partition, parent) {
   const auth = authorizationRequest();
