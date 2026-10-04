@@ -1,5 +1,5 @@
-import { app, BrowserWindow, session, shell, dialog } from 'electron';
-import { mkdirSync } from 'node:fs';
+import { app, BrowserWindow, session, shell, dialog, Menu } from 'electron';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLocalServer } from './local-server.mjs';
 import { authorizationRequest, parseAuthRedirect, createLoginController, LoginError } from './riot-login.mjs';
@@ -80,8 +80,20 @@ else {
   server.on('error', () => { dialog.showErrorBox('DAILY DROP', 'アプリを起動できません。起動中のDAILY DROPを終了して再度お試しください。'); app.quit(); });
   server.listen(port, '127.0.0.1', async () => {
     const url = `http://127.0.0.1:${server.address().port}`;
-    mainWindow = new BrowserWindow({ show: false, width: 1280, height: 900, minWidth: 760, minHeight: 600, title: 'DAILY DROP', backgroundColor: '#111318', autoHideMenuBar: true, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged } });
+    mainWindow = new BrowserWindow({ show: false, width: 420, height: 460, useContentSize: true, minWidth: 360, minHeight: 400, alwaysOnTop: true, maximizable: false, title: 'DAILY DROP', backgroundColor: '#111318', autoHideMenuBar: true, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged } });
     mainWindow.removeMenu();
+    // Desktop-only presentation. The shared web files remain byte-for-byte unchanged.
+    const compactCSS = readFileSync(new URL('./compact.css', import.meta.url), 'utf8');
+    mainWindow.webContents.on('context-menu', () => Menu.buildFromTemplate([
+      { label: '常に手前に表示', type: 'checkbox', checked: mainWindow.isAlwaysOnTop(), click: item => mainWindow.setAlwaysOnTop(item.checked) },
+      { role: 'minimize', label: '最小化' },
+      { role: 'close', label: '閉じる' },
+    ]).popup({ window: mainWindow }));
+    mainWindow.webContents.on('did-finish-load', () => {
+      void mainWindow.webContents.insertCSS(compactCSS).then(() => {
+        if (mainWindow && !mainWindow.isDestroyed() && !process.argv.includes('--no-open')) mainWindow.show();
+      }).catch(() => {});
+    });
     mainWindow.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     mainWindow.webContents.session.setPermissionCheckHandler(() => false);
     const external = raw => {
@@ -101,7 +113,6 @@ else {
     console.log(`DAILY DROP: ${url}\nショップ画面を閉じると終了します。`);
     try {
       await mainWindow.loadURL(url);
-      if (!process.argv.includes('--no-open')) mainWindow.show();
     } catch { dialog.showErrorBox('DAILY DROP', 'ショップ画面を開けませんでした。アプリを再起動してください。'); app.quit(); }
   });
 }

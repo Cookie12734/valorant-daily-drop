@@ -1,0 +1,33 @@
+/* Hallmark · desktop-only compact catalogue · existing Midnight tokens
+ * pre-emit critique: P5 H4 E4 S5 R5 V4 */
+:root body { font-size: 12px; }
+:root .header, :root .date-line, :root .title-period, :root .connect-panel, :root .source-note, :root .footer, :root .section-title, :root #expiry-label, :root #clock-label, :root .notice, :root .shop-bottom, :root .card-top, :root .card-subtitle { display: none !important; }
+:root .page { width: 100%; padding: 12px; }
+:root .page-heading { flex-direction: row; align-items: center; gap: 8px; margin-bottom: 10px; }
+:root h1 { font-size: 15px; margin: 0; letter-spacing: 0; }
+:root .countdown { display: block; }
+:root .clock { font-size: 17px; }
+:root .shop-toolbar { display: block; padding-bottom: 10px; }
+:root .toolbar-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+:root .connection-label { padding: 2px 6px; font-size: 11px; border: 0; }
+:root .button { min-height: 32px; padding: 4px 8px; font-size: 11px; }
+:root .button .icon { width: 14px; height: 14px; }
+:root .shop-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+:root .weapon-art { height: 80px; padding: 8px 12px; }
+:root .weapon-art img, :root .skin-card[data-weapon='近接武器'] .weapon-art img { max-height: 64px; transform: none; }
+:root .card-content { padding: 8px; gap: 4px; }
+:root .skin-name { font-size: 12px; line-height: 1.4; min-height: 2.8em; }
+:root .card-price { padding-top: 0; gap: 4px; font-size: 16px; }
+:root .price-unit { font-size: 10px; }
+:root .error { padding: 8px; margin-bottom: 8px; font-size: 12px; }
+:root body:has(#preview-button[hidden]) #shop-grid { display: none; }
+:root body:has(#preview-button[hidden]) .shop-section::after {
+  content: 'Riotでログインすると、今日のショップがここに表示されます。';
+  display: block; padding: 48px 16px; text-align: center; color: var(--color-muted);
+}
+:root body:has(#load-button[data-state='loading']):has(#preview-button[hidden]) .shop-section::after { content: 'ショップに接続しています…'; }
+:root dialog { padding: 16px; max-height: calc(100dvh - 24px); }
+:root dialog h2 { font-size: 16px; margin-bottom: 12px; }
+:root .detail-art { padding: 12px; margin-block: 12px; }
+:root .detail-art img { height: 120px; }
+:root .detail-price { font-size: 20px; }

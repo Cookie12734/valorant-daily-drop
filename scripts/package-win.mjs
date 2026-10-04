@@ -33,6 +33,7 @@ await mkdir(output);
 
 // Allowlist application files: exports, profiles, cookies, .env and tests never enter the package.
 const appFiles = [
+  'scripts/compact.css',
   'scripts/desktop.mjs', 'scripts/local-server.mjs', 'scripts/riot-login.mjs', 'scripts/riot-client.mjs',
   'dist/index.html', 'dist/app.mjs', 'dist/shop.mjs', 'dist/style.css', 'dist/tokens.css', 'dist/favicon.svg',
   'dist/assets/kuronami.png', 'dist/assets/oni.png', 'dist/assets/prime.png', 'dist/assets/reaver.png',
