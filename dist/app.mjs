@@ -1,5 +1,22 @@
 import { parseSnapshot, parseNightMarket, remainingTime } from './shop.mjs';
 
+// Browser-only local helper launch. Fragments are not sent over HTTP.
+let localApiToken = '';
+if (location.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(location.hostname)) {
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  const token = fragment.get('local-api');
+  if (token && /^[a-f0-9]{64}$/.test(token)) {
+    localApiToken = token;
+    history.replaceState(null, '', location.pathname + location.search);
+    try { sessionStorage.setItem('daily-drop-local-api', token); } catch { /* Current page still works without storage. */ }
+  } else {
+    try { localApiToken = sessionStorage.getItem('daily-drop-local-api') || ''; } catch { /* Desktop attaches its capability in the main process. */ }
+  }
+}
+function localFetch(path, options = {}) {
+  return fetch(path, { ...options, headers: { ...options.headers, ...(localApiToken ? { 'X-Daily-Drop-Token': localApiToken } : {}) } });
+}
+
 const $ = id => document.getElementById(id);
 const preview = [
   { id: 'c9678d8c-4327-f397-b0ec-dca3c3d6fb15', name: 'プライム ヴァンダル', weapon: 'ヴァンダル', image: '/assets/prime.png', price: null },
@@ -162,7 +179,7 @@ async function getShop() {
   $('error').hidden = true;
   setLoading(true);
   try {
-    const response = await fetch(market === 'daily' ? '/api/shop' : '/api/night-market', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(60000) });
+    const response = await localFetch(market === 'daily' ? '/api/shop' : '/api/night-market', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(60000) });
     const data = await response.json();
     if (currentOperation !== operation) return;
     if (response.status === 401 && login) { authState = 'signed_out'; resetPreview(); }
@@ -200,7 +217,7 @@ async function pollLogin() {
     return;
   }
   try {
-    const response = await fetch('/api/status', { credentials: 'same-origin', signal: AbortSignal.timeout(5000) });
+    const response = await localFetch('/api/status', { credentials: 'same-origin', signal: AbortSignal.timeout(5000) });
     if (!response.ok) throw new Error('status');
     const status = await response.json();
     if (authState === 'pending' && currentOperation === operation) applyStatus(status);
@@ -218,7 +235,7 @@ async function startLogin() {
   loginStarted = Date.now();
   updateControls();
   try {
-    const response = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(10000) });
+    const response = await localFetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(10000) });
     const data = await response.json();
     if (currentOperation !== operation) return;
     if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : 'ログイン画面を開けませんでした。もう一度お試しください。');
@@ -240,7 +257,7 @@ async function logout() {
   resetPreview();
   $('skin-dialog').close();
   try {
-    const response = await fetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(10000) });
+    const response = await localFetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error('logout');
   } catch {
     authState = logoutState;
@@ -305,8 +322,8 @@ $('today').dateTime = new Date().toISOString();
 resetPreview();
 setInterval(tick, 1000);
 if (['127.0.0.1', 'localhost'].includes(location.hostname)) {
-  fetch('/api/status', { signal: AbortSignal.timeout(3000), credentials: 'same-origin' })
-    .then(response => response.ok ? response.json() : null)
+  localFetch('/api/status', { signal: AbortSignal.timeout(3000), credentials: 'same-origin' })
+    .then(response => { if (response.status === 403) showError('アプリを再起動するか、起動時に表示された専用URLから接続してください。'); return response.ok ? response.json() : null; })
     .then(status => { if (status) applyStatus(status); })
     .catch(() => {});
 }

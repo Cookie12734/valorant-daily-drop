@@ -6,6 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createLocalServer } from './local-server.mjs';
 
 app.setPath('appData', mkdtempSync(join(tmpdir(), 'daily-drop-smoke-')));
 process.env.PORT = '0';
@@ -23,8 +24,14 @@ app.once('browser-window-created', (_event, window) => {
       assert.equal(preferences.nodeIntegration, false);
       assert.equal(preferences.contextIsolation, true);
       assert.equal(preferences.sandbox, true);
-      const status = await (await fetch(`${origin}/api/status`)).json();
+      assert.equal((await fetch(`${origin}/api/status`)).status, 403, 'native callers cannot read status');
+      for (const path of ['/api/login', '/api/logout', '/api/shop', '/api/night-market']) {
+        assert.equal((await fetch(origin + path, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
+      }
+      const status = await window.webContents.executeJavaScript(`fetch('/api/status').then(r => r.json())`);
       assert.deepEqual(status, { local: true, login: true, auth: { state: 'signed_out' } });
+      assert.equal(new URL(window.webContents.getURL()).hash, '');
+      assert.equal(await window.webContents.executeJavaScript(`sessionStorage.length`), 0);
       const page = await (await fetch(origin)).text();
       assert.match(page, /DailyDrop\.exe/);
       assert.equal(BrowserWindow.getAllWindows().length, 1);
@@ -71,6 +78,29 @@ app.once('browser-window-created', (_event, window) => {
         } finally { window.fetch=originalFetch; }
       })()`);
       assert.deepEqual(switching, { selected: true, discounted: true, daily: true, inactive: true, sixFits: true });
+      // Another renderer, even in the same Electron session, gets no capability.
+      const otherWindow = new BrowserWindow({ show: false, webPreferences: { session: window.webContents.session, sandbox: true, contextIsolation: true, nodeIntegration: false } });
+      try {
+        await otherWindow.loadURL(origin);
+        assert.equal(await otherWindow.webContents.executeJavaScript(`fetch('/api/status').then(r => r.status)`), 403);
+      } finally { otherWindow.destroy(); }
+      // Browser helper: launch fragment, removal from address bar, reload and real POST.
+      let browserCalls = 0;
+      const helper = await createLocalServer({ loadShop: async () => { browserCalls++; return { schemaVersion: 1, source: 'riot-client', region: 'ap', fetchedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3600000).toISOString(), offers: [] }; } });
+      await new Promise(resolve => helper.listen(0, '127.0.0.1', resolve));
+      const helperURL = `http://127.0.0.1:${helper.address().port}`;
+      const browser = new BrowserWindow({ show: false, webPreferences: { partition: 'browser-helper-test', sandbox: true, contextIsolation: true, nodeIntegration: false } });
+      try {
+        await browser.loadURL(`${helperURL}/#local-api=${helper.apiToken}`);
+        assert.equal(new URL(browser.webContents.getURL()).hash, '');
+        await browser.loadURL(helperURL);
+        assert.equal(await browser.webContents.executeJavaScript(`(async () => {
+          for (let i=0;i<100;i++) { if (document.querySelector('#load-label').textContent==='ショップを取得') return true; await new Promise(r=>setTimeout(r,20)); } return false;
+        })()`), true);
+        await browser.webContents.executeJavaScript(`document.querySelector('#load-button').click()`);
+        for (let i = 0; i < 100 && !browserCalls; i++) await new Promise(resolve => setTimeout(resolve, 20));
+        assert.equal(browserCalls, 1);
+      } finally { browser.destroy(); await new Promise(resolve => helper.close(resolve)); }
       if (process.env.DAILY_DROP_SMOKE_IMAGE) writeFileSync(process.env.DAILY_DROP_SMOKE_IMAGE, (await window.webContents.capturePage()).toPNG());
       passed = true;
       console.log('PASS: compact layout, shop/night switching, six discounts, inactive market, isolated session and secure renderer');

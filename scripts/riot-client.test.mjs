@@ -11,9 +11,10 @@ const ids = [1, 2, 3, 4].map(number => `00000000-0000-0000-0000-${String(number)
 const VP = '85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741';
 const store = { accessToken: 'must-not-export', subject: ids[0], SkinsPanelLayout: { SingleItemOffers: ids, SingleItemOffersRemainingDurationInSeconds: 3600, SingleItemStoreOffers: ids.map((id, index) => ({ OfferID: id, Cost: { [VP]: 1775 + index }, Rewards: [{ ItemID: id }] })) } };
 
-function call(port, { path = '/api/shop', method = 'POST', headers = {}, body = '{}' } = {}) {
+function call(server, { path = '/api/shop', method = 'POST', headers = {}, body = '{}' } = {}) {
+  const port = server.address().port;
   return new Promise((resolve, reject) => {
-    const req = request({ hostname: '127.0.0.1', port, path, method, headers: { Host: `127.0.0.1:${port}`, Origin: `http://127.0.0.1:${port}`, 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', ...headers } }, response => {
+    const req = request({ hostname: '127.0.0.1', port, path, method, headers: { Host: `127.0.0.1:${port}`, Origin: `http://127.0.0.1:${port}`, 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', 'X-Daily-Drop-Token': server.apiToken, ...headers } }, response => {
       let text = '';
       response.setEncoding('utf8');
       response.on('data', chunk => { text += chunk; });
@@ -57,23 +58,23 @@ test('Riot shop normalization and local boundary protections', async () => {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
   try {
-    assert.equal((await call(port, { path: '/api/status', method: 'GET', body: '' })).text, '{"local":true}');
+    assert.equal((await call(server, { path: '/api/status', method: 'GET', body: '' })).text, '{"local":true}');
     assert.equal(calls, 0);
-    for (const headers of [{ Host: `evil.example:${port}` }, { Origin: 'https://evil.example' }, { Origin: '' }, { 'Sec-Fetch-Site': 'cross-site' }, { 'Content-Type': 'text/plain' }]) assert.equal((await call(port, { headers })).status, 403);
-    assert.equal((await call(port, { method: 'GET', body: '' })).status, 405);
-    assert.equal((await call(port, { body: '{"token":"unwanted"}' })).status, 400);
+    for (const headers of [{ Host: `evil.example:${port}` }, { Origin: 'https://evil.example' }, { Origin: '' }, { 'Sec-Fetch-Site': 'cross-site' }, { 'Content-Type': 'text/plain' }]) assert.equal((await call(server, { headers })).status, 403);
+    assert.equal((await call(server, { method: 'GET', body: '' })).status, 405);
+    assert.equal((await call(server, { body: '{"token":"unwanted"}' })).status, 400);
     assert.equal(calls, 0);
-    assert.equal((await call(port, { path: '/%2e%2e/index.html', method: 'GET', body: '' })).status, 400);
-    assert.equal((await call(port, { path: '/.secret.json', method: 'GET', body: '' })).status, 404);
-    assert.equal((await call(port, { path: '/', method: 'GET', body: '' })).text, '<p>local</p>');
-    const module = await call(port, { path: '/app.mjs', method: 'GET', body: '' });
+    assert.equal((await call(server, { path: '/%2e%2e/index.html', method: 'GET', body: '' })).status, 400);
+    assert.equal((await call(server, { path: '/.secret.json', method: 'GET', body: '' })).status, 404);
+    assert.equal((await call(server, { path: '/', method: 'GET', body: '' })).text, '<p>local</p>');
+    const module = await call(server, { path: '/app.mjs', method: 'GET', body: '' });
     assert.equal(module.status, 200);
     assert.equal(module.headers['content-type'], 'text/javascript; charset=utf-8');
-    const success = await call(port);
+    const success = await call(server);
     assert.equal(success.status, 200);
     assert.deepEqual(JSON.parse(success.text), snapshot);
     assert.equal(success.headers['cache-control'], 'no-store');
-    const failure = await call(port);
+    const failure = await call(server);
     assert.equal(failure.status, 503);
     assert.equal(failure.text.includes('secret-token'), false);
   } finally {

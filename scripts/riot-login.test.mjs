@@ -69,7 +69,7 @@ test('HTTP login requires same-origin POST and never returns tokens', async () =
   const server = await createLocalServer({ auth });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const call = (path, overrides = {}) => fetch(origin + path, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}', ...overrides });
+  const call = (path, overrides = {}) => fetch(origin + path, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'X-Daily-Drop-Token': server.apiToken }, body: '{}', ...overrides });
   try {
     assert.equal((await call('/api/login', { headers: { Origin: 'https://evil.test', 'Content-Type': 'application/json' } })).status, 403);
     assert.equal((await call('/api/login', { body: '{"password":"not-accepted"}' })).status, 400);

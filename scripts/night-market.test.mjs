@@ -113,7 +113,7 @@ test('Night Market HTTP route enforces the local authenticated boundary and hide
   const server = await createLocalServer({ auth });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const call = (overrides = {}) => fetch(`${origin}/api/night-market`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}', ...overrides });
+  const call = (overrides = {}) => fetch(`${origin}/api/night-market`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'X-Daily-Drop-Token': server.apiToken }, body: '{}', ...overrides });
   try {
     assert.equal((await call({ method: 'GET', body: undefined })).status, 405);
     assert.equal((await call({ headers: { Origin: 'https://evil.test', 'Content-Type': 'application/json' } })).status, 403);
@@ -141,7 +141,7 @@ test('Legacy Riot Client helper receives Night Market mode and keeps daily mode 
   const origin = `http://127.0.0.1:${server.address().port}`;
   try {
     for (const path of ['/api/night-market', '/api/shop']) {
-      const response = await fetch(origin + path, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}' });
+      const response = await fetch(origin + path, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'X-Daily-Drop-Token': server.apiToken }, body: '{}' });
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), snapshot);
     }

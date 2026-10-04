@@ -82,7 +82,15 @@ else {
   server.on('error', () => { dialog.showErrorBox('DAILY DROP', 'アプリを起動できません。起動中のDAILY DROPを終了して再度お試しください。'); app.quit(); });
   server.listen(port, '127.0.0.1', async () => {
     const url = `http://127.0.0.1:${server.address().port}`;
-    mainWindow = new BrowserWindow({ show: false, width: 420, height: 460, useContentSize: true, minWidth: 360, minHeight: 400, alwaysOnTop: true, maximizable: false, title: 'DAILY DROP', backgroundColor: '#111318', autoHideMenuBar: true, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged } });
+    const uiSession = session.fromPartition('daily-drop-ui');
+    mainWindow = new BrowserWindow({ show: false, width: 420, height: 460, useContentSize: true, minWidth: 360, minHeight: 400, alwaysOnTop: true, maximizable: false, title: 'DAILY DROP', backgroundColor: '#111318', autoHideMenuBar: true, webPreferences: { session: uiSession, nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged } });
+    // Main-process capability: never exposed to renderer JS, URLs or persistent storage.
+    uiSession.webRequest.onBeforeSendHeaders({ urls: [`${url}/api/*`] }, (details, callback) => {
+      if (mainWindow && !mainWindow.isDestroyed() && details.webContentsId === mainWindow.webContents.id && details.resourceType === 'xhr') {
+        details.requestHeaders['X-Daily-Drop-Token'] = server.apiToken;
+      }
+      callback({ requestHeaders: details.requestHeaders });
+    });
     mainWindow.removeMenu();
     // Desktop-only presentation. The shared web files remain byte-for-byte unchanged.
     const compactCSS = readFileSync(new URL('./compact.css', import.meta.url), 'utf8');

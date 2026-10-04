@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +48,8 @@ async function emptyJsonBody(request) {
 export async function createLocalServer({ directory = fileURLToPath(new URL('../dist/', import.meta.url)), loadShop = fetchShopSnapshot, auth } = {}) {
   // Exact startup file inventory excludes scripts, exports, dotfiles and symlinks.
   const files = await staticFiles(directory);
+  // Never serve this capability in HTML, static files or API responses.
+  const apiToken = randomBytes(32).toString('hex');
   const server = createServer(async (request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
@@ -57,6 +60,15 @@ export async function createLocalServer({ directory = fileURLToPath(new URL('../
     if (!validHost(request.headers.host, port)) { json(response, 403, { error: 'このページはローカル接続専用です。' }); return; }
     let path;
     try { path = requestPath(request.url ?? ''); } catch { json(response, 400, { error: 'リクエストを読み取れません。' }); return; }
+    if (path.startsWith('/api/')) {
+      const supplied = request.headers['x-daily-drop-token'];
+      if (typeof supplied !== 'string' || !/^[a-f0-9]{64}$/.test(supplied) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(apiToken))) {
+        json(response, 403, { error: 'アプリを再起動するか、起動時に表示された専用URLから接続してください。' }); return;
+      }
+      if (request.headers['sec-fetch-site'] && request.headers['sec-fetch-site'] !== 'same-origin' || request.headers.origin && request.headers.origin !== `http://${request.headers.host}`) {
+        json(response, 403, { error: 'このページから接続し直してください。' }); return;
+      }
+    }
     if (path === '/api/status' && request.method === 'GET') { json(response, 200, { local: true, ...(auth ? { login: true, auth: auth.status() } : {}) }); return; }
     if (['/api/shop', '/api/night-market', '/api/login', '/api/logout'].includes(path)) {
       if (request.method !== 'POST') { response.setHeader('Allow', 'POST'); json(response, 405, { error: 'POST が必要です。' }); return; }
@@ -87,6 +99,7 @@ export async function createLocalServer({ directory = fileURLToPath(new URL('../
   server.requestTimeout = 10000;
   server.headersTimeout = 10000;
   server.keepAliveTimeout = 5000;
+  Object.defineProperty(server, 'apiToken', { value: apiToken });
   return server;
 }
 
@@ -97,7 +110,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     try {
       const server = await createLocalServer();
       server.on('error', () => { console.error('ローカルサーバーを起動できません。別の PORT を指定してください。'); process.exitCode = 1; });
-      server.listen(port, '127.0.0.1', () => console.log(`VALO STORE: http://127.0.0.1:${port}`));
+      server.listen(port, '127.0.0.1', () => console.log(`DAILY DROP（このURLは共有しないでください）: http://127.0.0.1:${port}/#local-api=${server.apiToken}`));
     } catch { console.error('サイトを読み取れません。dist のファイルを確認してください。'); process.exitCode = 1; }
   }
 }
