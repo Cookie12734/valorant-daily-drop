@@ -48,3 +48,7 @@
 :root body[data-market='night-market'] .discount del { display: block; }
 :root body[data-market='night-market']:has(#preview-button[hidden]) .shop-section::after { content: 'Riotでログインすると、ナイトマーケットを確認できます。'; }
 :root body[data-market='night-market']:has(#load-button[data-state='loading']):has(#preview-button[hidden]) .shop-section::after { content: 'ナイトマーケットに接続しています…'; }
+
+:root body[data-market='accessory'] h1 { font-size: 13px; }
+:root body[data-market='accessory']:has(#preview-button[hidden]) .shop-section::after { content: 'Riotでログインすると、アクセサリーストアを確認できます。'; }
+:root body[data-market='accessory']:has(#load-button[data-state='loading']):has(#preview-button[hidden]) .shop-section::after { content: 'アクセサリーストアに接続しています…'; }

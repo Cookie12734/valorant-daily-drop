@@ -31,6 +31,7 @@
       <div class="market-switch" role="group" aria-label="表示するショップ">
         <button type="button" class="button" id="daily-button" aria-pressed="true">ショップ</button>
         <button type="button" class="button" id="night-button" aria-pressed="false">ナイトマーケット</button>
+        <button type="button" class="button" id="accessory-button" aria-pressed="false">アクセサリーストア</button>
       </div>
       <div class="shop-toolbar">
         <div class="section-title"><span class="section-marker" aria-hidden="true"></span><h2 id="shop-heading">デイリーオファー</h2><span class="offer-count" id="offer-count">04</span></div>
@@ -66,8 +67,8 @@
   <dialog id="purchase-dialog" aria-labelledby="purchase-title" aria-describedby="purchase-note">
     <form method="dialog"><button class="close-button" id="purchase-close-button" aria-label="閉じる">×</button></form>
     <span class="dialog-label">PURCHASE</span><h2 id="purchase-title">購入内容の確認</h2>
-    <p class="small-label" id="purchase-note">非公式の購入機能です。実際のRiot APIでの購入動作は未検証です。確定するとVPを消費します。</p>
-    <dl class="purchase-summary" id="purchase-summary" hidden><div><dt>スキン</dt><dd id="purchase-skin-name"></dd></div><div><dt>購入価格</dt><dd id="purchase-price"></dd></div><div><dt>現在の残高</dt><dd id="purchase-balance"></dd></div><div><dt>購入後の残高</dt><dd id="purchase-after-balance"></dd></div></dl>
+    <p class="small-label" id="purchase-note">非公式の購入機能です。実際のRiot APIでの購入動作は未検証です。確定すると表示された通貨を消費します。</p>
+    <dl class="purchase-summary" id="purchase-summary" hidden><div><dt>商品</dt><dd id="purchase-skin-name"></dd></div><div><dt>購入価格</dt><dd id="purchase-price"></dd></div><div><dt>現在の残高</dt><dd id="purchase-balance"></dd></div><div><dt>購入後の残高</dt><dd id="purchase-after-balance"></dd></div></dl>
     <p class="small-label" id="purchase-expiry" hidden></p>
     <p class="purchase-message" id="purchase-message" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"></p>
     <div class="purchase-actions"><button type="button" class="button primary" id="purchase-confirm-button" hidden>購入を確定</button><button type="button" class="button primary" id="purchase-refresh-button" hidden>購入内容を再取得</button><button type="button" class="button primary" id="purchase-check-button" hidden>購入結果を確認</button><form method="dialog"><button class="button quiet" id="purchase-cancel-button">閉じる</button></form></div>

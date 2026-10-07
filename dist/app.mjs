@@ -1,3 +1,4 @@
+import { parseAccessory, accessoryTypes } from './accessory.mjs';
 import { parseSnapshot, parseNightMarket, remainingTime } from './shop.mjs';
 
 // Browser-only local helper launch. Fragments are not sent over HTTP.
@@ -45,6 +46,8 @@ let purchaseState = 'idle';
 let purchaseMessage = '';
 let purchaseStatusChecked = false;
 const metadata = new Map();
+const currency = () => market === 'accessory' ? 'KC' : 'VP';
+const marketName = () => market === 'accessory' ? 'アクセサリーストア' : 'ナイトマーケット';
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' });
 const timeFormat = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -58,7 +61,7 @@ function priceLabel(price) {
   return price === null ? '—' : new Intl.NumberFormat('ja-JP').format(price);
 }
 function canPurchase() {
-  return purchaseCapable && local && login && authState === 'signed_in' && snapshotMode === 'local' && snapshot && market === 'daily' && !expired && !logoutState;
+  return purchaseCapable && local && login && authState === 'signed_in' && snapshotMode === 'local' && snapshot && market !== 'night-market' && !expired && !logoutState;
 }
 function unresolvedPurchase() {
   return ['pending', 'unknown'].includes(purchaseState);
@@ -78,15 +81,15 @@ function updatePurchaseControls() {
   $('purchase-expiry').hidden = !purchaseQuote || purchaseState !== 'idle';
   if (purchaseQuote && purchaseOffer) {
     $('purchase-skin-name').textContent = purchaseOffer.name;
-    $('purchase-price').textContent = `${priceLabel(purchaseQuote.price)} VP`;
-    $('purchase-balance').textContent = `${priceLabel(purchaseQuote.balance)} VP`;
-    $('purchase-after-balance').textContent = `${priceLabel(purchaseQuote.balance - purchaseQuote.price)} VP`;
+    $('purchase-price').textContent = `${priceLabel(purchaseQuote.price)} ${currency()}`;
+    $('purchase-balance').textContent = `${priceLabel(purchaseQuote.balance)} ${currency()}`;
+    $('purchase-after-balance').textContent = `${priceLabel(purchaseQuote.balance - purchaseQuote.price)} ${currency()}`;
     $('purchase-expiry').textContent = ready ? 'この確認内容は短時間で失効します。価格と残高を確認して確定してください。' : '確認内容の期限が切れました。再取得してください。';
   }
   $('purchase-message').textContent = purchaseMessage;
   $('purchase-confirm-button').hidden = !purchaseQuote || purchaseState !== 'idle';
   $('purchase-confirm-button').disabled = purchaseBusy || loading || !available || !ready || !purchaseQuote || purchaseQuote.balance < purchaseQuote.price;
-  $('purchase-confirm-button').textContent = purchaseQuote ? `${priceLabel(purchaseQuote.price)} VPで購入を確定` : '購入を確定';
+  $('purchase-confirm-button').textContent = purchaseQuote ? `${priceLabel(purchaseQuote.price)} ${currency()}で購入を確定` : '購入を確定';
   $('purchase-refresh-button').hidden = !purchaseOffer || purchaseState !== 'idle' || ready;
   $('purchase-refresh-button').disabled = purchaseBusy || loading || !available;
   $('purchase-check-button').hidden = !unresolvedPurchase();
@@ -159,11 +162,11 @@ async function requestPurchaseQuote(offer) {
     purchaseState = 'idle';
     purchaseMessage = '最新の価格と残高を確認しています…';
     updatePurchaseControls();
-    const quote = await purchaseRequest('/api/purchase/quote', { skinId: offer.id, expectedPrice: offer.price });
+    const quote = await purchaseRequest('/api/purchase/quote', { skinId: offer.id, expectedPrice: offer.price, ...(market === 'accessory' ? { mode: 'accessory' } : {}) });
     if (purchaseOffer.id !== offer.id || !canPurchase()) return;
-    if (!quote || typeof quote.quoteId !== 'string' || !quote.quoteId || quote.skinId !== offer.id || quote.price !== offer.price || !Number.isSafeInteger(quote.price) || quote.price <= 0 || !Number.isSafeInteger(quote.balance) || quote.balance < 0 || typeof quote.expiresAt !== 'string' || !Number.isFinite(Date.parse(quote.expiresAt)) || Date.parse(quote.expiresAt) <= Date.now()) throw new Error('購入内容が変更されたか、期限が切れました。ショップを更新して再確認してください。');
+    if (!quote || (market === 'accessory' && quote.currency !== 'KC') || typeof quote.quoteId !== 'string' || !quote.quoteId || quote.skinId !== offer.id || quote.price !== offer.price || !Number.isSafeInteger(quote.price) || quote.price <= 0 || !Number.isSafeInteger(quote.balance) || quote.balance < 0 || typeof quote.expiresAt !== 'string' || !Number.isFinite(Date.parse(quote.expiresAt)) || Date.parse(quote.expiresAt) <= Date.now()) throw new Error('購入内容が変更されたか、期限が切れました。ショップを更新して再確認してください。');
     purchaseQuote = quote;
-    purchaseMessage = quote.balance < quote.price ? 'VP残高が不足しています。購入は確定できません。' : 'このスキンを、この価格で購入します。内容を確認してから確定してください。';
+    purchaseMessage = quote.balance < quote.price ? `${currency()}残高が不足しています。購入は確定できません。` : 'この商品を、この価格で購入します。内容を確認してから確定してください。';
   } catch (error) {
     purchaseQuote = null;
     purchaseMessage = ['TimeoutError', 'TypeError', 'SyntaxError'].includes(error.name) ? '購入内容を取得できませんでした。接続を確認して再取得してください。' : error.message;
@@ -192,16 +195,16 @@ async function confirmPurchase() {
     setPurchaseBusy(false);
     if ($('purchase-dialog').open) $('purchase-message').focus();
   }
-  if (purchaseState === 'complete' && market === 'daily') await getShop();
+  if (purchaseState === 'complete' && market !== 'night-market') await getShop();
 }
 async function refreshPurchaseResult() {
   if (purchaseBusy || !purchaseCapable || authState !== 'signed_in') return;
   setPurchaseBusy(true);
   const completed = await checkPurchaseStatus();
-  if (purchaseState === 'idle') purchaseMessage = '未確定の購入はありません。スキンを選び、購入内容を改めて確認できます。';
+  if (purchaseState === 'idle') purchaseMessage = '未確定の購入はありません。商品を選び、購入内容を改めて確認できます。';
   setPurchaseBusy(false);
   if ($('purchase-dialog').open) $('purchase-message').focus();
-  if (completed && market === 'daily') await getShop();
+  if (completed && market !== 'night-market') await getShop();
 }
 function renderCards(offers) {
   $('shop-grid').replaceChildren(...offers.map((offer, index) => {
@@ -210,7 +213,7 @@ function renderCards(offers) {
     card.disabled = purchaseBusy;
     card.dataset.skinId = offer.id;
     card.dataset.weapon = offer.weapon;
-    card.setAttribute('aria-label', `${offer.name}、${offer.price === null ? '価格未取得' : `${priceLabel(offer.price)} VP`}、詳細を見る`);
+    card.setAttribute('aria-label', `${offer.name}、${offer.price === null ? '価格未取得' : `${priceLabel(offer.price)} ${currency()}`}、詳細を見る`);
     const top = node('div', 'card-top');
     top.append(node('span', '', offer.weapon), node('span', 'card-number', String(index + 1).padStart(2, '0')));
     const art = node('div', 'weapon-art');
@@ -224,11 +227,11 @@ function renderCards(offers) {
       if (index === 0) image.fetchPriority = 'high';
       image.addEventListener('error', () => art.replaceChildren(node('span', 'small-label', '画像を取得できません')), { once: true });
       art.append(image);
-    } else art.append(node('span', 'small-label', 'スキン情報を取得できません'));
+    } else art.append(node('span', 'small-label', offer.itemTypeId === 'de7caa6b-adf7-4588-bbd1-143831e786c6' ? offer.name : '画像なし'));
     const content = node('div', 'card-content');
-    content.append(node('span', 'skin-name', offer.name), node('span', 'card-subtitle', snapshot ? market === 'daily' ? 'デイリーオファー' : 'ナイトマーケット' : 'プレビュー'));
+    content.append(node('span', 'skin-name', offer.name), node('span', 'card-subtitle', snapshot ? market === 'daily' ? 'デイリーオファー' : marketName() : 'プレビュー'));
     const price = node('div', 'card-price');
-    price.append(node('span', 'vp-mark', 'V'), node('span', '', priceLabel(offer.price)), node('span', 'price-unit', 'VP'));
+    price.append(node('span', 'vp-mark', market === 'accessory' ? 'K' : 'V'), node('span', '', priceLabel(offer.price)), node('span', 'price-unit', currency()));
     if (offer.originalPrice !== undefined) {
       const discount = node('div', 'discount');
       discount.append(node('del', '', priceLabel(offer.originalPrice) + ' VP'), node('span', '', offer.discountPercent + '% OFF'));
@@ -244,14 +247,14 @@ function renderCards(offers) {
       $('skin-image').hidden = !offer.image;
       if (offer.image) $('skin-image').src = offer.image;
       $('skin-image').alt = offer.name;
-      $('skin-price').textContent = offer.price === null ? '価格未取得' : `${priceLabel(offer.price)} VP`;
+      $('skin-price').textContent = offer.price === null ? '価格未取得' : `${priceLabel(offer.price)} ${currency()}`;
       updatePurchaseControls();
       $('skin-dialog').showModal();
     });
     return card;
   }));
   $('offer-count').textContent = String(offers.length).padStart(2, '0');
-  if (!offers.length) $('shop-grid').append(node('p', 'small-label', market === 'daily' ? '現在、デイリーオファーがありません。ゲーム内のショップを確認してください。' : !snapshot ? '接続後にナイトマーケットを確認できます。' : !snapshot.active ? '現在、このアカウントのナイトマーケットは開催されていません。' : '表示できるナイトマーケットの商品がありません。'));
+  if (!offers.length) $('shop-grid').append(node('p', 'small-label', market === 'daily' ? '現在、デイリーオファーがありません。ゲーム内のショップを確認してください。' : market === 'accessory' ? snapshot ? '現在、表示できるアクセサリーはありません。' : '接続後にアクセサリーストアを確認できます。' : !snapshot ? '接続後にナイトマーケットを確認できます。' : !snapshot.active ? '現在、このアカウントのナイトマーケットは開催されていません。' : '表示できるナイトマーケットの商品がありません。'));
 }
 function showError(message) {
   $('error').textContent = message;
@@ -261,7 +264,7 @@ function showError(message) {
 function updateControls() {
   const pending = login && authState === 'pending';
   $('load-button').disabled = purchaseBusy || loading || pending || Boolean(logoutState);
-  for (const id of ['daily-button', 'night-button']) $(id).disabled = purchaseBusy || loading || pending || Boolean(logoutState);
+  for (const id of ['daily-button', 'night-button', 'accessory-button']) $(id).disabled = purchaseBusy || loading || pending || Boolean(logoutState);
   $('logout-button').hidden = !login || !logoutState && !['pending', 'signed_in', 'error'].includes(authState);
   $('logout-button').disabled = purchaseBusy || Boolean(logoutState);
   $('logout-label').textContent = logoutState ? '終了中…' : pending ? 'キャンセル' : 'ログアウト';
@@ -285,22 +288,24 @@ function setLoading(busy) {
 }
 async function skinInfo(offer) {
   if (!metadata.has(offer.id)) {
-    const response = await fetch(`https://valorant-api.com/v1/weapons/skinlevels/${offer.id}?language=ja-JP`, { signal: AbortSignal.timeout(12000), credentials: 'omit' });
+    const type = accessoryTypes[offer.itemTypeId];
+    const response = await fetch(`https://valorant-api.com/v1/${type?.[0] ?? 'weapons/skinlevels'}/${offer.id}?language=ja-JP`, { signal: AbortSignal.timeout(12000), credentials: 'omit' });
     if (!response.ok) throw new Error('metadata');
     const { data } = await response.json();
-    const imageURL = new URL(data.displayIcon);
-    if (imageURL.origin !== 'https://media.valorant-api.com' || typeof data.displayName !== 'string') throw new Error('metadata');
-    const weapon = ['ヴァンダル', 'ファントム', 'クラシック', 'ショーティー', 'フレンジー', 'ゴースト', 'シェリフ', 'スティンガー', 'スペクター', 'バッキー', 'ジャッジ', 'ブルドッグ', 'ガーディアン', 'マーシャル', 'アウトロー', 'オペレーター', 'アレス', 'オーディン'].find(name => data.displayName.includes(name)) || '近接武器';
-    metadata.set(offer.id, { name: data.displayName, image: imageURL.href, weapon });
+    const icon = data.largeArt ?? data.fullTransparentIcon ?? data.displayIcon;
+    const imageURL = icon ? new URL(icon) : null;
+    if (imageURL && imageURL.origin !== 'https://media.valorant-api.com' || typeof data.displayName !== 'string') throw new Error('metadata');
+    const weapon = type?.[1] ?? (['ヴァンダル', 'ファントム', 'クラシック', 'ショーティー', 'フレンジー', 'ゴースト', 'シェリフ', 'スティンガー', 'スペクター', 'バッキー', 'ジャッジ', 'ブルドッグ', 'ガーディアン', 'マーシャル', 'アウトロー', 'オペレーター', 'アレス', 'オーディン'].find(name => data.displayName.includes(name)) || '近接武器');
+    metadata.set(offer.id, { name: data.titleText || data.displayName, image: imageURL?.href ?? null, weapon });
   }
   return { ...offer, ...metadata.get(offer.id) };
 }
 async function displaySnapshot(value, mode, currentOperation) {
-  const next = market === 'daily' ? parseSnapshot(value) : parseNightMarket(value);
+  const next = market === 'accessory' ? parseAccessory(value) : market === 'daily' ? parseSnapshot(value) : parseNightMarket(value);
   const results = await Promise.allSettled(next.offers.map(skinInfo));
   if (currentOperation !== operation) return;
   const offers = results.map((result, index) => result.status === 'fulfilled' ? result.value :
-    { ...next.offers[index], name: `スキン ${index + 1}`, weapon: '情報未取得', image: null });
+    { ...next.offers[index], name: `商品 ${index + 1}`, weapon: '情報未取得', image: null });
   snapshot = next;
   snapshotMode = mode;
   purchaseQuote = null;
@@ -309,8 +314,8 @@ async function displaySnapshot(value, mode, currentOperation) {
   $('connection-label').textContent = mode === 'local' ? `${next.region.toUpperCase()} · 接続済み` : `${next.region.toUpperCase()} · ファイル`;
   $('notice-tag').textContent = mode === 'local' ? 'YOUR SHOP' : 'SNAPSHOT';
   $('notice-text').textContent = mode === 'local' ? 'Riotから取得した、あなた専用のショップです。' : 'ファイル取得時点のショップです。最新情報はファイルを再取得してください。';
-  $('shop-status').textContent = `${timeFormat.format(new Date(next.fetchedAt))} JST 取得${results.some(result => result.status === 'rejected') ? ' · 一部のスキン情報を取得できません。再読み込みしてください。' : ''}`;
-  $('expiry-label').textContent = next.expiresAt ? `${timeFormat.format(new Date(next.expiresAt))} JST ${market === 'daily' ? '更新' : '終了'}` : '開催期間なし';
+  $('shop-status').textContent = `${timeFormat.format(new Date(next.fetchedAt))} JST 取得${results.some(result => result.status === 'rejected') ? ' · 一部の商品情報を取得できません。再読み込みしてください。' : ''}`;
+  $('expiry-label').textContent = next.expiresAt ? `${timeFormat.format(new Date(next.expiresAt))} JST ${market !== 'night-market' ? '更新' : '終了'}` : '開催期間なし';
   $('preview-button').hidden = false;
   tick();
   updatePurchaseControls();
@@ -337,6 +342,8 @@ function resetPreview() {
   snapshot = null;
   snapshotMode = 'preview';
   purchaseQuote = null;
+  purchaseOffer = null;
+  selectedOffer = null;
   $('error').hidden = true;
   $('clock').textContent = '— : — : —';
   $('connection-label').textContent = '未接続';
@@ -346,7 +353,7 @@ function resetPreview() {
   $('shop-status').textContent = 'プレビュー · 価格はショップ取得後に表示';
   $('preview-button').hidden = true;
   renderCards(market === 'daily' ? preview : []);
-  if (market !== 'daily') { $('notice-tag').textContent = 'NIGHT MARKET'; $('notice-text').textContent = '接続すると、あなたのナイトマーケットを確認できます。'; $('shop-status').textContent = '未取得'; }
+  if (market !== 'daily') { $('notice-tag').textContent = market === 'accessory' ? 'ACCESSORY STORE' : 'NIGHT MARKET'; $('notice-text').textContent = `接続すると、あなたの${marketName()}を確認できます。`; $('shop-status').textContent = '未取得'; }
   updateControls();
 }
 async function getShop() {
@@ -356,7 +363,7 @@ async function getShop() {
   $('error').hidden = true;
   setLoading(true);
   try {
-    const response = await localFetch(market === 'daily' ? '/api/shop' : '/api/night-market', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(60000) });
+    const response = await localFetch(market === 'daily' ? '/api/shop' : market === 'accessory' ? '/api/accessory' : '/api/night-market', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(60000) });
     const data = await response.json();
     if (currentOperation !== operation) return;
     if (response.status === 401 && login) { authState = 'signed_out'; resetPreview(); }
@@ -474,12 +481,13 @@ function selectMarket(next) {
   market = next;
   document.body.dataset.market = market;
   $('daily-button').setAttribute('aria-pressed', String(market === 'daily'));
-  $('night-button').setAttribute('aria-pressed', String(market !== 'daily'));
-  $('view-title').textContent = market === 'daily' ? '今日のショップ' : 'ナイトマーケット';
-  $('shop-heading').textContent = market === 'daily' ? 'デイリーオファー' : '期間限定オファー';
-  $('clock-label').textContent = market === 'daily' ? 'ショップ更新まで' : '開催終了まで';
+  $('night-button').setAttribute('aria-pressed', String(market === 'night-market'));
+  $('accessory-button').setAttribute('aria-pressed', String(market === 'accessory'));
+  $('view-title').textContent = market === 'daily' ? '今日のショップ' : marketName();
+  $('shop-heading').textContent = market === 'daily' ? 'デイリーオファー' : market === 'accessory' ? 'アクセサリー' : '期間限定オファー';
+  $('clock-label').textContent = market !== 'night-market' ? 'ショップ更新まで' : '開催終了まで';
 }
-for (const [id, next] of [['daily-button', 'daily'], ['night-button', 'night-market']]) $(id).addEventListener('click', () => {
+for (const [id, next] of [['daily-button', 'daily'], ['night-button', 'night-market'], ['accessory-button', 'accessory']]) $(id).addEventListener('click', () => {
   if (purchaseBusy || market === next || loading || logoutState || authState === 'pending') return;
   ++operation;
   $('skin-dialog').close();
@@ -499,7 +507,7 @@ $('file-input').addEventListener('change', async event => {
     let data;
     try { data = JSON.parse(await file.text()); }
     catch { throw new Error('JSONファイルを読み取れません。shop.jsonを再取得してください。'); }
-    selectMarket(data?.kind === 'night-market' ? 'night-market' : 'daily');
+    selectMarket(data?.kind === 'accessory' ? 'accessory' : data?.kind === 'night-market' ? 'night-market' : 'daily');
     resetPreview();
     await displaySnapshot(data, 'file', currentOperation);
   } catch (error) { if (currentOperation === operation) showError(error.message); }

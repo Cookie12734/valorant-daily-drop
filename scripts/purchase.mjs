@@ -1,3 +1,4 @@
+import { accessoryFromStorefront, accessoryTypes, KC } from '../dist/accessory.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { open, readFile, rename } from 'node:fs/promises';
 
@@ -15,6 +16,7 @@ export function createPurchaseController({ getSession, journalFile, request = fe
   const ready = readFile(journalFile, 'utf8').then(text => {
     const value = JSON.parse(text);
     if (!value || value.schemaVersion !== 1 || !/^[a-f0-9]{64}$/.test(value.account) || !UUID.test(value.skinId) || !UUID.test(value.offerId) || !UUID.test(value.quoteId) || !UUID.test(value.xid) || !['pending', 'unknown', 'complete', 'failed'].includes(value.state) || value.orderId && !UUID.test(value.orderId)) throw new Error('Invalid purchase journal');
+    if (value.itemTypeId !== undefined && value.itemTypeId !== SKIN && !Object.hasOwn(accessoryTypes, value.itemTypeId)) throw new Error('Invalid item type');
     record = value;
   }).catch(error => { if (error.code !== 'ENOENT') throw new PurchaseError('購入記録を読み取れません。安全のため購入を停止しました。'); });
   // Avoid an unhandled rejection before the first user action; actions still fail closed.
@@ -42,14 +44,26 @@ export function createPurchaseController({ getSession, journalFile, request = fe
   function stillSignedIn(session) {
     if (getSession() !== session) throw new PurchaseError('ログイン状態が変わったため購入を中止しました。');
   }
-  async function owned(ctx, session, skinId) {
-    const data = await json(`${ctx.base}/store/v1/entitlements/${session.subject}/${SKIN}`, { headers: ctx.headers });
-    if (!Array.isArray(data.Entitlements) || data.Entitlements.some(item => !UUID.test(item?.ItemID))) throw new PurchaseError('所持スキンを確認できません。');
+  async function owned(ctx, session, skinId, itemTypeId = SKIN) {
+    const data = await json(`${ctx.base}/store/v1/entitlements/${session.subject}/${itemTypeId}`, { headers: ctx.headers });
+    if (!Array.isArray(data.Entitlements) || data.Entitlements.some(item => !UUID.test(item?.ItemID))) throw new PurchaseError('所持アイテムを確認できません。');
     return data.Entitlements.some(item => item.ItemID.toLowerCase() === skinId);
   }
-  async function inspect(session, skinId, price) {
+  async function inspect(session, skinId, price, mode = 'daily') {
     const ctx = await context(session);
     const store = await json(`${ctx.base}/store/v3/storefront/${session.subject}`, { method: 'POST', headers: ctx.headers, body: '{}' });
+    if (mode === 'accessory') {
+      let shop;
+      try { shop = accessoryFromStorefront(store, session.shard); } catch { throw new PurchaseError('アクセサリーの商品情報を確認できません。'); }
+      const offer = shop.offers.find(item => item.id === skinId);
+      if (!offer || offer.price !== price || Date.parse(shop.expiresAt) - Date.parse(shop.fetchedAt) < 120000) throw new PurchaseError('商品または価格が変わったか、更新直前です。ショップを更新してください。');
+      const wallet = await json(`${ctx.base}/store/v1/wallet/${session.subject}`, { headers: ctx.headers });
+      const balance = wallet.Balances?.[KC];
+      if (!Number.isSafeInteger(balance) || balance < price) throw new PurchaseError('KCが不足しているか、残高を確認できません。');
+      if (await owned(ctx, session, skinId, offer.itemTypeId)) throw new PurchaseError('この商品は既に所持しています。');
+      stillSignedIn(session);
+      return { ctx, offerId: offer.offerId, itemTypeId: offer.itemTypeId, balance };
+    }
     const panel = store.SkinsPanelLayout;
     const offers = panel?.SingleItemStoreOffers;
     if (!Number.isSafeInteger(panel?.SingleItemOffersRemainingDurationInSeconds) || panel.SingleItemOffersRemainingDurationInSeconds < 120 || !Array.isArray(offers) || offers.length > 4) throw new PurchaseError('ショップ更新直前、または商品情報を確認できないため購入できません。');
@@ -61,12 +75,12 @@ export function createPurchaseController({ getSession, journalFile, request = fe
     if (!Number.isSafeInteger(balance) || balance < price) throw new PurchaseError('VPが不足しているか、残高を確認できません。');
     if (await owned(ctx, session, skinId)) throw new PurchaseError('このスキンは既に所持しています。');
     stillSignedIn(session);
-    return { ctx, offerId: offer.OfferID, balance };
+    return { ctx, offerId: offer.OfferID, itemTypeId: SKIN, balance };
   }
   function result(value = record) {
     if (!value) return { state: 'idle' };
     const messages = {
-      complete: 'スキンの購入完了、または所持を確認しました。',
+      complete: '商品の購入完了、または所持を確認しました。',
       failed: '購入は完了していません。商品と価格を改めて確認してください。',
       pending: '購入を処理中です。「購入結果を確認」で確認してください。',
       unknown: '購入結果を確認できません。二重購入を防ぐため再送信を停止しています。「購入結果を確認」を押してください。',
@@ -90,9 +104,9 @@ export function createPurchaseController({ getSession, journalFile, request = fe
       if (record.orderId) {
         const data = await json(`${ctx.base}/store/v1/order/${record.orderId}`, { headers: ctx.headers });
         if (data.OrderID !== record.orderId || !['ACCEPTED', 'COMPLETE', 'FAILED'].includes(data.Status)) throw new Error('Invalid order status');
-        const state = data.Status === 'FAILED' ? 'failed' : data.Status === 'COMPLETE' && await owned(ctx, session, record.skinId) ? 'complete' : 'pending';
+        const state = data.Status === 'FAILED' ? 'failed' : data.Status === 'COMPLETE' && await owned(ctx, session, record.skinId, record.itemTypeId) ? 'complete' : 'pending';
         await save({ ...record, state });
-      } else if (await owned(ctx, session, record.skinId)) {
+      } else if (await owned(ctx, session, record.skinId, record.itemTypeId)) {
         await save({ ...record, state: 'complete' });
       }
     } catch { /* Missing results must never authorize a second purchase. */ }
@@ -103,12 +117,13 @@ export function createPurchaseController({ getSession, journalFile, request = fe
     quote(input) { return run(async () => {
       quote = undefined;
       const session = getSession();
-      if (!input || Object.keys(input).sort().join(',') !== 'expectedPrice,skinId' || typeof input.skinId !== 'string' || !UUID.test(input.skinId) || !Number.isSafeInteger(input.expectedPrice) || input.expectedPrice <= 0) throw new PurchaseError('購入する商品と価格を確認してください。');
+      if (!input || !(Object.keys(input).sort().join(',') === 'expectedPrice,skinId' || Object.keys(input).sort().join(',') === 'expectedPrice,mode,skinId' && input.mode === 'accessory') || typeof input.skinId !== 'string' || !UUID.test(input.skinId) || !Number.isSafeInteger(input.expectedPrice) || input.expectedPrice <= 0) throw new PurchaseError('購入する商品と価格を確認してください。');
       if (unresolved(record)) throw new PurchaseError('前回の購入結果が未確認です。先に購入結果を確認してください。');
       const skinId = input.skinId.toLowerCase();
-      const { offerId, balance } = await inspect(session, skinId, input.expectedPrice);
-      quote = { quoteId: randomUUID(), session, skinId, offerId, price: input.expectedPrice, balance, expiresAt: now() + 60000 };
-      return { quoteId: quote.quoteId, skinId, price: quote.price, balance, expiresAt: new Date(quote.expiresAt).toISOString() };
+      const mode = input.mode ?? 'daily';
+      const { offerId, itemTypeId, balance } = await inspect(session, skinId, input.expectedPrice, mode);
+      quote = { quoteId: randomUUID(), session, skinId, offerId, itemTypeId, mode, price: input.expectedPrice, balance, expiresAt: now() + 60000 };
+      return { quoteId: quote.quoteId, skinId, currency: mode === 'accessory' ? 'KC' : 'VP', price: quote.price, balance, expiresAt: new Date(quote.expiresAt).toISOString() };
     }); },
     confirm(input) { return run(async () => {
       const session = getSession();
@@ -117,9 +132,9 @@ export function createPurchaseController({ getSession, journalFile, request = fe
       const selected = quote;
       if (!selected || selected.quoteId !== input.quoteId || selected.session !== session || selected.expiresAt <= now() || unresolved(record)) throw new PurchaseError('購入確認の有効期限が切れたか、前回の購入が未確認です。');
       quote = undefined;
-      const { ctx, offerId, balance } = await inspect(session, selected.skinId, selected.price);
-      if (offerId !== selected.offerId || balance !== selected.balance || selected.expiresAt <= now()) throw new PurchaseError('商品情報または残高が変わりました。もう一度確認してください。');
-      const next = { schemaVersion: 1, account: accountKey(session), quoteId: selected.quoteId, skinId: selected.skinId, offerId, price: selected.price, xid: randomUUID(), state: 'unknown' };
+      const { ctx, offerId, itemTypeId, balance } = await inspect(session, selected.skinId, selected.price, selected.mode);
+      if (itemTypeId !== selected.itemTypeId || offerId !== selected.offerId || balance !== selected.balance || selected.expiresAt <= now()) throw new PurchaseError('商品情報または残高が変わりました。もう一度確認してください。');
+      const next = { schemaVersion: 1, account: accountKey(session), quoteId: selected.quoteId, skinId: selected.skinId, itemTypeId, offerId, price: selected.price, xid: randomUUID(), state: 'unknown' };
       // A crash after this write is ambiguous even if no HTTP response arrives.
       await save(next);
       try {

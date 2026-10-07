@@ -25,7 +25,7 @@ app.once('browser-window-created', (_event, window) => {
       assert.equal(preferences.contextIsolation, true);
       assert.equal(preferences.sandbox, true);
       assert.equal((await fetch(`${origin}/api/status`)).status, 403, 'native callers cannot read status');
-      for (const path of ['/api/login', '/api/logout', '/api/shop', '/api/night-market', '/api/purchase/quote', '/api/purchase/confirm', '/api/purchase/status']) {
+      for (const path of ['/api/login', '/api/logout', '/api/shop', '/api/night-market', '/api/accessory', '/api/purchase/quote', '/api/purchase/confirm', '/api/purchase/status']) {
         assert.equal((await fetch(origin + path, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
       }
       const status = await window.webContents.executeJavaScript(`fetch('/api/status').then(r => r.json())`);
@@ -58,8 +58,9 @@ app.once('browser-window-created', (_event, window) => {
           if (url === '/api/login') return Response.json({local:true,login:true,purchase:true,auth:{state:'signed_in'}});
           if (url === '/api/shop') return Response.json({...base,offers:offers.slice(0,4)});
           if (url === '/api/night-market') return Response.json({...base,kind:'night-market',active,expiresAt:active?base.expiresAt:null,offers:active?offers:[]});
+          if (url === '/api/accessory') return Response.json({...base,kind:'accessory',offers:offers.slice(0,4).map((o,i)=>({id:o.id,offerId:o.id,price:4000,itemTypeId:['dd3bf334-87f3-40bd-b043-682a57a8dc3a','d5f120f8-ff8c-4aac-92ea-f2b5acbe9475','3f296c07-64c3-494c-923b-fe692a4fa1bd','de7caa6b-adf7-4588-bbd1-143831e786c6'][i]}))});
           if (url === '/api/purchase/status') return Response.json({state:purchaseResult});
-          if (url === '/api/purchase/quote') { const input=JSON.parse(options.body); return Response.json({quoteId:crypto.randomUUID(),skinId:input.skinId,price:input.expectedPrice,balance:5000,expiresAt:new Date(Date.now()+60000).toISOString()}); }
+          if (url === '/api/purchase/quote') { const input=JSON.parse(options.body); return Response.json({quoteId:crypto.randomUUID(),skinId:input.skinId,currency:input.mode==='accessory'?'KC':'VP',price:input.expectedPrice,balance:5000,expiresAt:new Date(Date.now()+60000).toISOString()}); }
           if (url === '/api/purchase/confirm') { confirmations++; purchaseResult=loseResponse?'unknown':'pending'; if(loseResponse) throw new TypeError('test lost response'); return Response.json({state:purchaseResult}); }
           return originalFetch(url, options);
         };
@@ -71,6 +72,22 @@ app.once('browser-window-created', (_event, window) => {
           await wait(()=>document.querySelectorAll('.skin-card').length===6 && !document.querySelector('#load-button').disabled);
           const discounted = document.querySelectorAll('.discount').length===6;
           const sixFits = [...document.querySelectorAll('.skin-card')].every(e => { const r=e.getBoundingClientRect(); return r.right<=innerWidth && r.bottom<=innerHeight; });
+          document.querySelector('#accessory-button').click();
+          await wait(()=>document.querySelectorAll('.skin-card').length===4 && !document.querySelector('#load-button').disabled);
+          const accessory=document.querySelector('#view-title').textContent==='アクセサリーストア' && document.querySelector('#night-button').getAttribute('aria-pressed')==='false' && [...document.querySelectorAll('.price-unit')].every(e=>e.textContent==='KC');
+          const accessoryFits=[...document.querySelectorAll('.skin-card'), document.querySelector('#accessory-button')].every(e=>{const r=e.getBoundingClientRect();return r.right<=innerWidth && r.bottom<=innerHeight;});
+          document.querySelector('.skin-card').click();
+          document.querySelector('#skin-purchase-button').click();
+          await wait(()=>document.querySelector('#purchase-confirm-button').disabled===false);
+          const accessoryQuote=document.querySelector('#purchase-price').textContent==='4,000 KC' && document.querySelector('#purchase-after-balance').textContent==='1,000 KC';
+          document.querySelector('#purchase-confirm-button').click();
+          await wait(()=>document.querySelector('#purchase-dialog').dataset.state==='pending' && !document.querySelector('#purchase-check-button').disabled);
+          purchaseResult='complete';
+          document.querySelector('#purchase-check-button').click();
+          await wait(()=>document.querySelector('#purchase-dialog').dataset.state==='complete' && !document.querySelector('#load-button').disabled);
+          const accessoryPurchased=confirmations===1;
+          document.querySelector('#purchase-cancel-button').click();
+          confirmations=0; purchaseResult='idle';
           document.querySelector('#daily-button').click();
           await wait(()=>document.querySelectorAll('.skin-card').length===4 && !document.querySelector('#load-button').disabled);
           const daily = document.querySelector('#view-title').textContent==='今日のショップ';
@@ -110,10 +127,10 @@ app.once('browser-window-created', (_event, window) => {
           document.querySelector('#purchase-check-button').click();
           await wait(()=>!document.querySelector('#purchase-check-button').disabled);
           const noRetry=confirmations===2 && document.querySelector('#purchase-dialog').dataset.state==='unknown';
-          return {selected,discounted,daily,inactive,sixFits,quoteShowsPrice,dialogFits,cancelledWithoutCharge,singleSend,completed,noRetry};
+          return {accessory,accessoryFits,accessoryQuote,accessoryPurchased,selected,discounted,daily,inactive,sixFits,quoteShowsPrice,dialogFits,cancelledWithoutCharge,singleSend,completed,noRetry};
         } finally { window.fetch=originalFetch; }
       })()`);
-      assert.deepEqual(switching, { selected: true, discounted: true, daily: true, inactive: true, sixFits: true, quoteShowsPrice: true, dialogFits: true, cancelledWithoutCharge: true, singleSend: true, completed: true, noRetry: true });
+      assert.deepEqual(switching, { accessory: true, accessoryFits: true, accessoryQuote: true, accessoryPurchased: true, selected: true, discounted: true, daily: true, inactive: true, sixFits: true, quoteShowsPrice: true, dialogFits: true, cancelledWithoutCharge: true, singleSend: true, completed: true, noRetry: true });
       // Another renderer, even in the same Electron session, gets no capability.
       const otherWindow = new BrowserWindow({ show: false, webPreferences: { session: window.webContents.session, sandbox: true, contextIsolation: true, nodeIntegration: false } });
       try {

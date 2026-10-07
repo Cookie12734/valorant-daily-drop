@@ -84,7 +84,7 @@ export async function createLocalServer({ directory = fileURLToPath(new URL('../
       catch (error) { json(response, 409, { error: error instanceof PurchaseError ? error.message : '購入処理を完了できません。購入結果を確認してください。' }); }
       return;
     }
-    if (['/api/shop', '/api/night-market', '/api/login', '/api/logout'].includes(path)) {
+    if (['/api/shop', '/api/night-market', '/api/accessory', '/api/login', '/api/logout'].includes(path)) {
       if (request.method !== 'POST') { response.setHeader('Allow', 'POST'); json(response, 405, { error: 'POST が必要です。' }); return; }
       if (!validShopRequest(request, port)) { json(response, 403, { error: 'このページから接続し直してください。' }); return; }
       try { if (Object.keys(await jsonBody(request)).length) throw new Error('Invalid body'); } catch { json(response, 400, { error: '空の JSON オブジェクトが必要です。' }); return; }
@@ -97,7 +97,7 @@ export async function createLocalServer({ directory = fileURLToPath(new URL('../
         return;
       }
       if (auth && auth.status().state !== 'signed_in') { json(response, 401, { error: 'Riotアカウントでログインしてください。' }); return; }
-      try { json(response, 200, await (path === '/api/night-market' ? auth ? auth.shop('night-market') : loadShop('night-market') : auth ? auth.shop() : loadShop())); }
+      try { json(response, 200, await (path === '/api/accessory' ? auth ? auth.shop('accessory') : loadShop('accessory') : path === '/api/night-market' ? auth ? auth.shop('night-market') : loadShop('night-market') : auth ? auth.shop() : loadShop())); }
       catch (error) { json(response, 503, { error: auth ? error instanceof LoginError ? error.message : 'ショップを取得できません。時間をおいてもう一度お試しください。' : 'ショップを取得できません。Riot Client と VALORANT を起動してログインし、もう一度お試しください。' }); }
       return;
     }

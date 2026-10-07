@@ -1,3 +1,4 @@
+import { accessoryFromStorefront } from '../dist/accessory.mjs';
 import { randomBytes } from 'node:crypto';
 import { snapshotFromStorefront } from './riot-client.mjs';
 import { nightMarketFromStorefront } from './night-market.mjs';
@@ -57,11 +58,11 @@ export async function accountSession(tokens, request = fetch) {
 }
 
 export async function sessionShop(session, request = fetch, mode = 'daily') {
-  if (!['daily', 'night-market'].includes(mode)) throw new LoginError('ショップの種類を読み取れません。');
+  if (!['daily', 'night-market', 'accessory'].includes(mode)) throw new LoginError('ショップの種類を読み取れません。');
   const version = (await riotJson('https://valorant-api.com/v1/version', {}, request))?.data?.riotClientVersion;
   if (typeof version !== 'string' || !/^release-\d+\.\d+-shipping-\d+-\d+$/.test(version)) throw new LoginError('VALORANTのバージョン情報を取得できません。');
   const store = await riotJson(`https://pd.${session.shard}.a.pvp.net/store/v3/storefront/${session.subject}`, { method: 'POST', body: '{}', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${session.accessToken}`, 'X-Riot-Entitlements-JWT': session.entitlement, 'X-Riot-ClientPlatform': PLATFORM, 'X-Riot-ClientVersion': version } }, request);
-  return { ...(mode === 'night-market' ? nightMarketFromStorefront(store, session.shard) : snapshotFromStorefront(store, session.shard)), source: 'riot-login' };
+  return { ...(mode === 'accessory' ? accessoryFromStorefront(store, session.shard) : mode === 'night-market' ? nightMarketFromStorefront(store, session.shard) : snapshotFromStorefront(store, session.shard)), source: 'riot-login' };
 }
 
 // ponytail: one local user per helper process; do not expose this server to a network.

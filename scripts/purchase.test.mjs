@@ -5,25 +5,29 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { createPurchaseController } from './purchase.mjs';
 import { createLocalServer } from './local-server.mjs';
+import { accessoryTypes, KC } from '../dist/accessory.mjs';
 
 const id = n => `00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
 const VP = '85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741';
 const SKIN = 'e7c63390-eda7-46e0-bb7a-a6abdacd2433';
-async function setup(t) {
+async function setup(t, itemTypeId = SKIN) {
   const directory = await mkdtemp(join(tmpdir(), 'daily-drop-purchase-'));
   t.after(async () => { assert.ok(directory.startsWith(`${resolve(tmpdir())}${sep}daily-drop-purchase-`)); await rm(directory, { recursive: true, force: true }); });
   const journalFile = join(directory, 'purchase-state.json');
   let session = { subject: id(9), shard: 'ap', accessToken: 'private-access', entitlement: 'private-entitlement' };
-  const state = { price: 1775, balance: 5000, owned: false, status: 'ACCEPTED', clock: 1000000, purchases: 0, timeout: false, seen: [], beforePost: undefined };
+  const state = { price: 1775, balance: 5000, itemTypeId, remaining: 3600, owned: false, status: 'ACCEPTED', clock: 1000000, purchases: 0, timeout: false, seen: [], beforePost: undefined };
   const request = async (url, options) => {
     state.seen.push({ url, options });
     assert.equal(options.redirect, 'error');
     if (url.endsWith('/version')) { assert.equal(options.headers, undefined); return Response.json({ data: { riotClientVersion: 'release-13.06-shipping-18-5590001' } }); }
     assert.ok(url.startsWith('https://pd.ap.a.pvp.net/'));
     assert.equal(options.headers.Authorization, 'Bearer private-access');
-    if (url.includes('/storefront/')) return Response.json({ SkinsPanelLayout: { SingleItemOffersRemainingDurationInSeconds: 3600, SingleItemOffers: [id(2)], SingleItemStoreOffers: [{ OfferID: id(2), IsDirectPurchase: true, Cost: { [VP]: state.price }, Rewards: [{ ItemTypeID: SKIN, ItemID: id(1), Quantity: 1 }] }] } });
-    if (url.includes('/wallet/')) return Response.json({ Balances: { [VP]: state.balance } });
-    if (url.includes('/entitlements/')) return Response.json({ Entitlements: state.owned ? [{ ItemID: id(1) }] : [] });
+    if (url.includes('/storefront/')) {
+      const offer = { OfferID: id(2), IsDirectPurchase: true, Cost: { [itemTypeId === SKIN ? VP : KC]: state.price }, Rewards: [{ ItemTypeID: state.itemTypeId, ItemID: id(1), Quantity: 1 }] };
+      return Response.json(itemTypeId === SKIN ? { SkinsPanelLayout: { SingleItemOffersRemainingDurationInSeconds: state.remaining, SingleItemOffers: [id(2)], SingleItemStoreOffers: [offer] } } : { AccessoryStore: { AccessoryStoreRemainingDurationInSeconds: state.remaining, AccessoryStoreOffers: [{ Offer: offer }] } });
+    }
+    if (url.includes('/wallet/')) return Response.json({ Balances: { [itemTypeId === SKIN ? VP : KC]: state.balance } });
+    if (url.includes('/entitlements/')) { assert.ok(url.endsWith('/' + state.itemTypeId)); return Response.json({ Entitlements: state.owned ? [{ ItemID: id(1) }] : [] }); }
     if (url.endsWith('/order/') && options.method === 'POST') {
       state.purchases++;
       const saved = JSON.parse(await readFile(journalFile, 'utf8'));
@@ -40,7 +44,7 @@ async function setup(t) {
   };
   const options = { journalFile, request, now: () => state.clock, getSession: () => { if (!session) throw new Error('signed out'); return session; } };
   const controller = createPurchaseController(options);
-  const quote = () => controller.quote({ skinId: id(1), expectedPrice: 1775 });
+  const quote = () => controller.quote({ skinId: id(1), expectedPrice: 1775, ...(itemTypeId === SKIN ? {} : { mode: 'accessory' }) });
   return { controller, quote, state, options, journalFile, signOut: () => { session = undefined; } };
 }
 
@@ -59,6 +63,32 @@ test('explicit quote, single order submission, and COMPLETE plus ownership verif
   state.owned = true;
   assert.equal((await controller.status()).state, 'complete');
   assert.equal(state.purchases, 1);
+});
+
+test('all accessory types use KC and persist typed ownership across an ambiguous purchase restart', async t => {
+  for (const type of Object.keys(accessoryTypes)) {
+    const { controller, quote, state, options } = await setup(t, type);
+    state.balance = 1; await assert.rejects(quote(), /KC/);
+    state.balance = 5000; state.owned = true; await assert.rejects(quote(), /所持/);
+    state.owned = false; state.remaining = 119; await assert.rejects(quote(), /更新/);
+    state.remaining = 3600;
+    let value = await quote(); state.price = 2000;
+    await assert.rejects(controller.confirm({ quoteId: value.quoteId }), /価格/);
+    state.price = 1775; value = await quote();
+    state.itemTypeId = Object.keys(accessoryTypes).find(id => id !== type);
+    await assert.rejects(controller.confirm({ quoteId: value.quoteId }), /商品/);
+    state.itemTypeId = type;
+    value = await quote();
+    assert.equal(value.currency, 'KC'); assert.equal(value.balance, 5000); assert.equal(state.purchases, 0);
+    state.timeout = true;
+    assert.equal((await controller.confirm({ quoteId: value.quoteId })).state, 'unknown');
+    const restarted = createPurchaseController(options);
+    await assert.rejects(restarted.quote({ skinId: id(1), expectedPrice: 1775, mode: 'accessory' }), /未確認/);
+    assert.equal((await restarted.confirm({ quoteId: value.quoteId })).state, 'unknown');
+    state.owned = true;
+    assert.equal((await restarted.status()).state, 'complete');
+    assert.equal(state.purchases, 1);
+  }
 });
 
 test('stale price, insufficient balance, owned item, invalid input and expired quote never purchase', async t => {
