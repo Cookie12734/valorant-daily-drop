@@ -1,4 +1,5 @@
 import { accessoryFromStorefront } from '../dist/accessory.mjs';
+import { walletFromResponse } from '../dist/shop.mjs';
 import { readFile, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { get } from 'node:https';
@@ -89,7 +90,7 @@ export function snapshotFromStorefront(store, shard, now = new Date()) {
 }
 
 export async function fetchShopSnapshot(mode = 'daily') {
-  if (!['daily', 'night-market', 'accessory'].includes(mode)) throw new Error('ショップの種類を読み取れません。');
+  if (!['daily', 'night-market', 'accessory', 'wallet'].includes(mode)) throw new Error('ショップの種類を読み取れません。');
   const localAppData = process.env.LOCALAPPDATA;
   if (!localAppData) throw new Error('Windows の Riot Client が必要です。');
   let lockfile;
@@ -107,7 +108,9 @@ export async function fetchShopSnapshot(mode = 'daily') {
     if (!VERSION.test(version ?? '')) version = context.version;
     if (!VERSION.test(version ?? '')) version = clientContext(sessions, await logTail(localAppData), auth.subject).version;
     if (!VERSION.test(version ?? '')) throw new Error('クライアントのバージョンを取得できません。');
-    const store = await remoteJson(`https://pd.${context.shard}.a.pvp.net/store/v3/storefront/${auth.subject}`, { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${auth.accessToken}`, 'X-Riot-Entitlements-JWT': auth.token, 'X-Riot-ClientPlatform': PLATFORM, 'X-Riot-ClientVersion': version }, { method: 'POST', body: '{}' });
+    const headers = { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${auth.accessToken}`, 'X-Riot-Entitlements-JWT': auth.token, 'X-Riot-ClientPlatform': PLATFORM, 'X-Riot-ClientVersion': version };
+    if (mode === 'wallet') return walletFromResponse(await remoteJson(`https://pd.${context.shard}.a.pvp.net/store/v1/wallet/${auth.subject}`, headers));
+    const store = await remoteJson(`https://pd.${context.shard}.a.pvp.net/store/v3/storefront/${auth.subject}`, headers, { method: 'POST', body: '{}' });
     return mode === 'accessory' ? accessoryFromStorefront(store, context.shard) : mode === 'night-market' ? nightMarketFromStorefront(store, context.shard) : snapshotFromStorefront(store, context.shard);
   } catch { throw new Error('ショップを取得できません。VALORANT を起動してログインし、もう一度お試しください。'); }
 }

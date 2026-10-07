@@ -1,4 +1,15 @@
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const currencies = { VP: '85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741', RP: 'e59aa87c-4cbf-517a-5983-6e81511be9b7', KC: '85ca954a-41f2-ce94-9b45-8ca3dd39a00d' };
+export function parseWallet(value) {
+  return Object.fromEntries(Object.keys(currencies).map(code => {
+    const balance = value?.[code];
+    if (!Number.isSafeInteger(balance) || balance < 0) throw new Error('残高情報を読み取れません。再取得してください。');
+    return [code, balance];
+  }));
+}
+export function walletFromResponse(value) {
+  return parseWallet(Object.fromEntries(Object.entries(currencies).map(([code, id]) => [code, value?.Balances?.[id]])));
+}
 export function parseNightMarket(value) {
   const fail = () => { throw new Error('ナイトマーケットの情報を読み取れません。再取得してください。'); };
   if (!value || value.kind !== 'night-market' || value.schemaVersion !== 1 || !['riot-login', 'riot-client'].includes(value.source) || !['na', 'eu', 'ap', 'kr', 'pbe'].includes(value.region) || typeof value.active !== 'boolean' || !Array.isArray(value.offers) || value.offers.length > 6) fail();

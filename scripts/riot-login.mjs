@@ -1,4 +1,5 @@
 import { accessoryFromStorefront } from '../dist/accessory.mjs';
+import { walletFromResponse } from '../dist/shop.mjs';
 import { randomBytes } from 'node:crypto';
 import { snapshotFromStorefront } from './riot-client.mjs';
 import { nightMarketFromStorefront } from './night-market.mjs';
@@ -32,7 +33,7 @@ export function parseAuthRedirect(raw, state, now = Date.now()) {
 }
 
 async function riotJson(url, options, request) {
-  const stage = url.includes('/store/') ? 'ショップ' : url.endsWith('/version') ? 'バージョン情報' : 'アカウント情報';
+  const stage = url.includes('/wallet/') ? '残高' : url.includes('/store/') ? 'ショップ' : url.endsWith('/version') ? 'バージョン情報' : 'アカウント情報';
   let response;
   try { response = await request(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(15000) }); }
   catch { throw new LoginError('Riotへの接続に失敗しました。ネットワークを確認してください。'); }
@@ -58,10 +59,15 @@ export async function accountSession(tokens, request = fetch) {
 }
 
 export async function sessionShop(session, request = fetch, mode = 'daily') {
-  if (!['daily', 'night-market', 'accessory'].includes(mode)) throw new LoginError('ショップの種類を読み取れません。');
+  if (!['daily', 'night-market', 'accessory', 'wallet'].includes(mode)) throw new LoginError('ショップの種類を読み取れません。');
   const version = (await riotJson('https://valorant-api.com/v1/version', {}, request))?.data?.riotClientVersion;
   if (typeof version !== 'string' || !/^release-\d+\.\d+-shipping-\d+-\d+$/.test(version)) throw new LoginError('VALORANTのバージョン情報を取得できません。');
-  const store = await riotJson(`https://pd.${session.shard}.a.pvp.net/store/v3/storefront/${session.subject}`, { method: 'POST', body: '{}', headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${session.accessToken}`, 'X-Riot-Entitlements-JWT': session.entitlement, 'X-Riot-ClientPlatform': PLATFORM, 'X-Riot-ClientVersion': version } }, request);
+  const headers = { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${session.accessToken}`, 'X-Riot-Entitlements-JWT': session.entitlement, 'X-Riot-ClientPlatform': PLATFORM, 'X-Riot-ClientVersion': version };
+  if (mode === 'wallet') {
+    const wallet = await riotJson(`https://pd.${session.shard}.a.pvp.net/store/v1/wallet/${session.subject}`, { headers }, request);
+    try { return walletFromResponse(wallet); } catch { throw new LoginError('残高情報を読み取れません。再取得してください。'); }
+  }
+  const store = await riotJson(`https://pd.${session.shard}.a.pvp.net/store/v3/storefront/${session.subject}`, { method: 'POST', body: '{}', headers }, request);
   return { ...(mode === 'accessory' ? accessoryFromStorefront(store, session.shard) : mode === 'night-market' ? nightMarketFromStorefront(store, session.shard) : snapshotFromStorefront(store, session.shard)), source: 'riot-login' };
 }
 

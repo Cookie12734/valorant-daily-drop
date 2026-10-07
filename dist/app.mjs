@@ -1,5 +1,5 @@
 import { parseAccessory, accessoryTypes } from './accessory.mjs';
-import { parseSnapshot, parseNightMarket, remainingTime } from './shop.mjs';
+import { parseSnapshot, parseNightMarket, parseWallet, remainingTime } from './shop.mjs';
 
 // Browser-only local helper launch. Fragments are not sent over HTTP.
 let localApiToken = '';
@@ -45,6 +45,8 @@ let purchaseQuote = null;
 let purchaseState = 'idle';
 let purchaseMessage = '';
 let purchaseStatusChecked = false;
+let walletBusy = false;
+let walletOperation = 0;
 const metadata = new Map();
 const currency = () => market === 'accessory' ? 'KC' : 'VP';
 const marketName = () => market === 'accessory' ? 'アクセサリーストア' : 'ナイトマーケット';
@@ -59,6 +61,41 @@ function node(tag, className, text) {
 }
 function priceLabel(price) {
   return price === null ? '—' : new Intl.NumberFormat('ja-JP').format(price);
+}
+function clearWallet() {
+  ++walletOperation;
+  walletBusy = false;
+  $('wallet-dialog').close();
+  $('wallet-dialog').setAttribute('aria-busy', 'false');
+  $('wallet-balances').hidden = true;
+  for (const code of ['VP', 'RP', 'KC']) $('wallet-' + code).textContent = '—';
+  $('wallet-message').textContent = '';
+}
+async function getWallet() {
+  if (!local || login && authState !== 'signed_in' || logoutState || purchaseBusy || walletBusy) return;
+  const current = ++walletOperation;
+  walletBusy = true;
+  $('wallet-balances').hidden = true;
+  for (const code of ['VP', 'RP', 'KC']) $('wallet-' + code).textContent = '—';
+  $('wallet-message').textContent = '残高を取得しています…';
+  $('wallet-dialog').setAttribute('aria-busy', 'true');
+  if (!$('wallet-dialog').open) $('wallet-dialog').showModal();
+  updateControls();
+  try {
+    const response = await localFetch('/api/wallet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(60000) });
+    const data = await response.json();
+    if (current !== walletOperation) return;
+    if (response.status === 401 && login) { authState = 'signed_out'; clearWallet(); resetPreview(); showError('Riotに再度ログインしてください。'); return; }
+    if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : '残高を取得できませんでした。');
+    const balances = parseWallet(data);
+    for (const code of ['VP', 'RP', 'KC']) $('wallet-' + code).textContent = `${priceLabel(balances[code])} ${code}`;
+    $('wallet-balances').hidden = false;
+    $('wallet-message').textContent = `${timeFormat.format(new Date())} JST 取得 · 最新の残高は「更新」で確認できます。`;
+  } catch (error) {
+    if (current === walletOperation) $('wallet-message').textContent = ['TimeoutError', 'TypeError', 'SyntaxError'].includes(error.name) ? '残高を取得できませんでした。接続を確認して再度お試しください。' : error.message;
+  } finally {
+    if (current === walletOperation) { walletBusy = false; $('wallet-dialog').setAttribute('aria-busy', 'false'); updateControls(); }
+  }
 }
 function canPurchase() {
   return purchaseCapable && local && login && authState === 'signed_in' && snapshotMode === 'local' && snapshot && market !== 'night-market' && !expired && !logoutState;
@@ -178,6 +215,7 @@ async function requestPurchaseQuote(offer) {
 async function confirmPurchase() {
   if (purchaseBusy || loading || !canPurchase() || !validPurchaseQuote() || !purchaseStatusChecked || purchaseQuote.balance < purchaseQuote.price || unresolvedPurchase()) { updatePurchaseControls(); return; }
   const quoteId = purchaseQuote.quoteId;
+  clearWallet();
   // Consume the UI quote before sending: a lost response must never resend it.
   purchaseQuote = null;
   purchaseState = 'pending';
@@ -263,6 +301,10 @@ function showError(message) {
 }
 function updateControls() {
   const pending = login && authState === 'pending';
+  $('wallet-button').hidden = !local || login && authState !== 'signed_in';
+  $('wallet-button').disabled = purchaseBusy || loading || walletBusy || Boolean(logoutState);
+  $('wallet-refresh-button').disabled = walletBusy || purchaseBusy || Boolean(logoutState) || !local || login && authState !== 'signed_in';
+  $('wallet-refresh-button').textContent = walletBusy ? '取得中…' : '更新';
   $('load-button').disabled = purchaseBusy || loading || pending || Boolean(logoutState);
   for (const id of ['daily-button', 'night-button', 'accessory-button']) $(id).disabled = purchaseBusy || loading || pending || Boolean(logoutState);
   $('logout-button').hidden = !login || !logoutState && !['pending', 'signed_in', 'error'].includes(authState);
@@ -366,7 +408,7 @@ async function getShop() {
     const response = await localFetch(market === 'daily' ? '/api/shop' : market === 'accessory' ? '/api/accessory' : '/api/night-market', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: AbortSignal.timeout(60000) });
     const data = await response.json();
     if (currentOperation !== operation) return;
-    if (response.status === 401 && login) { authState = 'signed_out'; resetPreview(); }
+    if (response.status === 401 && login) { authState = 'signed_out'; clearWallet(); resetPreview(); }
     if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : 'ショップを取得できませんでした。もう一度ログインして取得してください。');
     await displaySnapshot(data, 'local', currentOperation);
   } catch (error) {
@@ -381,6 +423,7 @@ function applyStatus(status) {
   purchaseCapable = login && status.purchase === true;
   const previous = authState;
   authState = login && ['signed_out', 'pending', 'signed_in', 'error'].includes(status.auth?.state) ? status.auth.state : 'signed_out';
+  if (!local || login && authState !== 'signed_in') clearWallet();
   if (authState !== 'error') $('error').hidden = true;
   clearTimeout(pollTimer);
   if (login && authState === 'pending') {
@@ -425,6 +468,7 @@ async function pollLogin() {
 }
 async function startLogin() {
   if (purchaseBusy) return;
+  clearWallet();
   const currentOperation = ++operation;
   $('error').hidden = true;
   authState = 'pending';
@@ -445,6 +489,7 @@ async function startLogin() {
 }
 async function logout() {
   if (purchaseBusy || logoutState) return;
+  clearWallet();
   ++operation;
   clearTimeout(pollTimer);
   logoutState = authState;
@@ -477,6 +522,8 @@ $('load-button').addEventListener('click', () => {
   else getShop();
 });
 $('logout-button').addEventListener('click', logout);
+$('wallet-button').addEventListener('click', getWallet);
+$('wallet-refresh-button').addEventListener('click', getWallet);
 function selectMarket(next) {
   market = next;
   document.body.dataset.market = market;
