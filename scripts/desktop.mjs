@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session, shell, dialog, Menu } from 'electron';
 import { mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { createUpdater } from './updater.mjs';
 import { createLocalServer } from './local-server.mjs';
 import { authorizationRequest, parseAuthRedirect, createLoginController, LoginError } from './riot-login.mjs';
 
@@ -74,7 +75,8 @@ const auth = createLoginController({ purchaseFile: join(profile, 'purchase-state
   await partition.clearStorageData();
   await partition.cookies.flushStore();
 } });
-const server = await createLocalServer({ auth });
+const updater = createUpdater({ currentVersion: app.getVersion(), installDirectory: dirname(process.execPath), supported: app.isPackaged && process.platform === 'win32' && process.arch === 'x64', quit: () => app.quit() });
+const server = await createLocalServer({ auth, updater });
 // An ephemeral loopback port serves bundled files inside this app; no hosted backend.
 const port = Number(process.env.PORT ?? 0);
 if (!Number.isInteger(port) || port < 0 || port > 65535) { dialog.showErrorBox('DAILY DROP', 'PORTには0〜65535を指定してください。'); app.quit(); }

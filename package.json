@@ -1,6 +1,6 @@
 {
   "name": "valorant-daily-drop",
-  "version": "1.4.0-preview.2",
+  "version": "1.4.0-preview.3",
   "private": true,
   "type": "module",
   "main": "scripts/desktop.mjs",

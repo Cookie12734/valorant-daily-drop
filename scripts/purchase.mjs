@@ -114,6 +114,7 @@ export function createPurchaseController({ getSession, journalFile, request = fe
     return result();
   }
   return {
+    get isBusy() { return busy; },
     quote(input) { return run(async () => {
       quote = undefined;
       const session = getSession();

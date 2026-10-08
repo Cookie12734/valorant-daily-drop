@@ -1,4 +1,5 @@
 import { parseAccessory, accessoryTypes } from './accessory.mjs';
+import { setupUpdates } from './update.mjs';
 import { parseSnapshot, parseNightMarket, parseWallet, remainingTime } from './shop.mjs';
 
 // Browser-only local helper launch. Fragments are not sent over HTTP.
@@ -586,6 +587,6 @@ setInterval(tick, 1000);
 if (['127.0.0.1', 'localhost'].includes(location.hostname)) {
   localFetch('/api/status', { signal: AbortSignal.timeout(3000), credentials: 'same-origin' })
     .then(response => { if (response.status === 403) showError('アプリを再起動するか、起動時に表示された専用URLから接続してください。'); return response.ok ? response.json() : null; })
-    .then(status => { if (status) applyStatus(status); })
+    .then(status => { if (status) { applyStatus(status); if (status.login) setupUpdates(localFetch); } })
     .catch(() => {});
 }

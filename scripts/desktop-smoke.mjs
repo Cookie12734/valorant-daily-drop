@@ -35,7 +35,8 @@ app.once('browser-window-created', (_event, window) => {
       const page = await (await fetch(origin)).text();
       assert.match(page, /DailyDrop\.exe/);
       assert.equal(BrowserWindow.getAllWindows().length, 1);
-      assert.deepEqual(window.getContentSize(), [420, 460]);
+      const [contentWidth, contentHeight] = window.getContentSize();
+      assert.ok(Math.abs(contentWidth - 420) <= 2 && Math.abs(contentHeight - 460) <= 2, 'compact size allows Windows DPI rounding');
       assert.equal(window.isAlwaysOnTop(), true);
       // Exercise the compact presentation with built-in sample cards, never a real account.
       const layout = await window.webContents.executeJavaScript(`(async () => {
@@ -164,6 +165,36 @@ app.once('browser-window-created', (_event, window) => {
         } finally { window.fetch=originalFetch; }
       })()`);
       assert.deepEqual(switching, { walletShowsBalances: true, walletFits: true, walletRefreshes: true, walletError: true, walletInvalid: true, walletLogout: true, accessory: true, accessoryFits: true, accessoryQuote: true, accessoryPurchased: true, selected: true, discounted: true, daily: true, inactive: true, sixFits: true, quoteShowsPrice: true, dialogFits: true, cancelledWithoutCharge: true, singleSend: true, completed: true, noRetry: true });
+      const updates = await window.webContents.executeJavaScript(`(async () => {
+        const originalFetch = window.fetch;
+        let installs = 0;
+        const state = { currentVersion: '1.4.0-preview.2', supported: true, phase: 'idle', release: { version: '1.4.0-preview.3', name: '更新機能の改善', notes: '更新内容\\n・最新リリースをアプリから取得\\n・ログイン情報を保持\\n<script>window.injected = true</script>' } };
+        const wait = async predicate => { for(let i=0;i<100;i++){ if(predicate()) return; await new Promise(r=>setTimeout(r,20)); } throw new Error('Update UI timed out'); };
+        window.fetch = async (url, options) => {
+          if (!String(url).startsWith('/api/update/')) return originalFetch(url, options);
+          if (String(url).endsWith('/install')) { installs++; state.phase = 'downloading'; }
+          return new Response(JSON.stringify(state), { headers: {'Content-Type':'application/json'} });
+        };
+        try {
+          document.querySelector('#update-check').click();
+          await wait(()=>!document.querySelector('#update-button').hidden);
+          document.querySelector('#update-button').click();
+          await wait(()=>!document.querySelector('#update-check').disabled);
+          const rect = document.querySelector('#update-dialog').getBoundingClientRect();
+          const fits = rect.left>=0 && rect.right<=innerWidth && rect.bottom<=innerHeight;
+          const safeNotes = !window.injected && document.querySelector('#update-notes').textContent.includes('<script>');
+          document.querySelector('#update-install').click();
+          document.querySelector('#update-install').click();
+          await wait(()=>document.querySelector('#update-message').textContent.includes('ダウンロード'));
+          const busy = document.querySelector('#update-install').disabled && installs===1;
+          state.phase='error'; state.error='接続できません。再試行してください。';
+          await wait(()=>document.querySelector('#update-message').textContent===state.error);
+          const retry = !document.querySelector('#update-install').disabled;
+          document.querySelector('#update-dialog').close();
+          return { fits, safeNotes, busy, retry };
+        } finally { window.fetch=originalFetch; }
+      })()`);
+      assert.deepEqual(updates, { fits: true, safeNotes: true, busy: true, retry: true });
       // Another renderer, even in the same Electron session, gets no capability.
       const otherWindow = new BrowserWindow({ show: false, webPreferences: { session: window.webContents.session, sandbox: true, contextIsolation: true, nodeIntegration: false } });
       try {
@@ -188,12 +219,13 @@ app.once('browser-window-created', (_event, window) => {
         assert.equal(browserCalls, 1);
       } finally { browser.destroy(); await new Promise(resolve => helper.close(resolve)); }
       if (process.env.DAILY_DROP_SMOKE_IMAGE) {
+        if (process.env.DAILY_DROP_SMOKE_UPDATE_IMAGE) await window.webContents.executeJavaScript("document.querySelector('#update-dialog').showModal()");
         window.showInactive();
         await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
         writeFileSync(process.env.DAILY_DROP_SMOKE_IMAGE, (await window.webContents.capturePage()).toPNG());
       }
       passed = true;
-      console.log('PASS: compact layout, wallet balances/refresh/errors/logout, shop switching, purchase confirmation/cancel/results/no-retry, isolated session and protected local API');
+      console.log('PASS: update dialog/notes/progress/retry, compact layout, wallet, shop, purchase, isolated session and protected local API');
       window.close();
     } catch (error) { console.error(error); app.exit(1); }
   });
