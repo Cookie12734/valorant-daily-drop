@@ -2,7 +2,7 @@ import { accessoryFromStorefront } from '../dist/accessory.mjs';
 import { walletFromResponse } from '../dist/shop.mjs';
 import { readFile, open } from 'node:fs/promises';
 import { join } from 'node:path';
-import { get } from 'node:https';
+import { request as httpsRequest } from 'node:https';
 import { nightMarketFromStorefront } from './night-market.mjs';
 
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
@@ -19,10 +19,10 @@ export function parseLockfile(text) {
 }
 
 // Internal client endpoints: https://valapidocs.techchrism.me/endpoint/entitlements-token
-function localJson({ port, password }, pathname) {
+export function localJson({ port, password }, pathname, body) {
   return new Promise((resolve, reject) => {
     // Only this fixed loopback request accepts the Riot Client's local certificate.
-    const request = get({ hostname: '127.0.0.1', port, path: pathname, rejectUnauthorized: false, headers: { Authorization: `Basic ${Buffer.from(`riot:${password}`).toString('base64')}` }, signal: AbortSignal.timeout(8000) }, response => {
+    const request = httpsRequest({ hostname: '127.0.0.1', port, path: pathname, method: body === undefined ? 'GET' : 'POST', rejectUnauthorized: false, headers: { Authorization: `Basic ${Buffer.from(`riot:${password}`).toString('base64')}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(8000) }, response => {
       if (response.statusCode !== 200) { response.resume(); reject(new Error('Riot Client に接続できません。')); return; }
       let body = '';
       response.setEncoding('utf8');
@@ -31,6 +31,7 @@ function localJson({ port, password }, pathname) {
       response.on('end', () => { try { resolve(JSON.parse(body)); } catch { reject(new Error('Riot Client の応答を読み取れません。')); } });
     });
     request.on('error', reject);
+    request.end(body === undefined ? undefined : JSON.stringify(body));
   });
 }
 

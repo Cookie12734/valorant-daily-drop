@@ -39,6 +39,9 @@ let pollTimer;
 let loginStarted = 0;
 let logoutState = '';
 let purchaseCapable = false;
+let topupCapable = false;
+let insufficientVP = false;
+let topupFromPurchase = false;
 let purchaseBusy = false;
 let selectedOffer = null;
 let purchaseOffer = null;
@@ -124,6 +127,8 @@ function updatePurchaseControls() {
     $('purchase-after-balance').textContent = `${priceLabel(purchaseQuote.balance - purchaseQuote.price)} ${currency()}`;
     $('purchase-expiry').textContent = ready ? 'この確認内容は短時間で失効します。価格と残高を確認して確定してください。' : '確認内容の期限が切れました。再取得してください。';
   }
+  $('purchase-topup-button').hidden = !topupCapable || !insufficientVP || !available || market !== 'daily' || purchaseState !== 'idle';
+  $('purchase-topup-button').disabled = purchaseBusy;
   $('purchase-message').textContent = purchaseMessage;
   $('purchase-confirm-button').hidden = !purchaseQuote || purchaseState !== 'idle';
   $('purchase-confirm-button').disabled = purchaseBusy || loading || !available || !ready || !purchaseQuote || purchaseQuote.balance < purchaseQuote.price;
@@ -153,7 +158,7 @@ function showPurchaseDialog() {
 async function purchaseRequest(path, body = {}) {
   const response = await localFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), credentials: 'same-origin', signal: AbortSignal.timeout(60000) });
   const data = await response.json();
-  if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : '購入内容を確認できませんでした。');
+  if (!response.ok) throw Object.assign(new Error(typeof data.error === 'string' ? data.error : '購入内容を確認できませんでした。'), { code: data.code });
   return data;
 }
 function applyPurchaseResult(result) {
@@ -184,6 +189,7 @@ async function checkPurchaseStatus() {
 async function requestPurchaseQuote(offer) {
   if (purchaseBusy || loading || !canPurchase() || !offer || !Number.isSafeInteger(offer.price)) return;
   if (unresolvedPurchase()) { showPurchaseDialog(); return; }
+  insufficientVP = false;
   purchaseOffer = { ...offer };
   purchaseQuote = null;
   purchaseState = 'idle';
@@ -206,6 +212,7 @@ async function requestPurchaseQuote(offer) {
     purchaseQuote = quote;
     purchaseMessage = quote.balance < quote.price ? `${currency()}残高が不足しています。購入は確定できません。` : 'この商品を、この価格で購入します。内容を確認してから確定してください。';
   } catch (error) {
+    insufficientVP = error.code === 'INSUFFICIENT_VP';
     purchaseQuote = null;
     purchaseMessage = ['TimeoutError', 'TypeError', 'SyntaxError'].includes(error.name) ? '購入内容を取得できませんでした。接続を確認して再取得してください。' : error.message;
   } finally {
@@ -302,6 +309,9 @@ function showError(message) {
 }
 function updateControls() {
   const pending = login && authState === 'pending';
+  $('wallet-topup-button').hidden = !topupCapable || authState !== 'signed_in';
+  $('wallet-topup-button').disabled = purchaseBusy || walletBusy || loading;
+  $('topup-open-button').disabled = purchaseBusy;
   $('wallet-button').hidden = !local || login && authState !== 'signed_in';
   $('wallet-button').disabled = purchaseBusy || loading || walletBusy || Boolean(logoutState);
   $('wallet-refresh-button').disabled = walletBusy || purchaseBusy || Boolean(logoutState) || !local || login && authState !== 'signed_in';
@@ -422,6 +432,7 @@ function applyStatus(status) {
   local = status?.local === true;
   login = local && status.login === true;
   purchaseCapable = login && status.purchase === true;
+  topupCapable = login && status.topup === true;
   const previous = authState;
   authState = login && ['signed_out', 'pending', 'signed_in', 'error'].includes(status.auth?.state) ? status.auth.state : 'signed_out';
   if (!local || login && authState !== 'signed_in') clearWallet();
@@ -590,3 +601,37 @@ if (['127.0.0.1', 'localhost'].includes(location.hostname)) {
     .then(status => { if (status) { applyStatus(status); if (status.login) setupUpdates(localFetch); } })
     .catch(() => {});
 }
+
+function showTopUp(fromPurchase) {
+  if (!topupCapable || purchaseBusy || walletBusy || loading || authState !== 'signed_in') return;
+  topupFromPurchase = fromPurchase;
+  $('topup-message').textContent = '';
+  $('topup-dialog').showModal();
+}
+$('wallet-topup-button').addEventListener('click', () => showTopUp(false));
+$('purchase-topup-button').addEventListener('click', () => showTopUp(true));
+$('topup-open-button').addEventListener('click', async () => {
+  if (purchaseBusy || !topupCapable || authState !== 'signed_in') return;
+  purchaseQuote = null;
+  setPurchaseBusy(true);
+  $('topup-message').textContent = 'Riotの購入画面を準備しています…';
+  let closed = false;
+  try {
+    let result = await purchaseRequest('/api/topup/start');
+    while (['opening', 'open'].includes(result.state)) {
+      $('topup-message').textContent = 'Riotの購入画面で操作してください。購入後はその画面を閉じてください。';
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      result = await purchaseRequest('/api/topup/status');
+    }
+    if (result.state !== 'closed') throw new Error(result.message || '購入画面を開けませんでした。');
+    closed = true;
+  } catch (error) {
+    $('topup-message').textContent = ['TimeoutError', 'TypeError', 'SyntaxError'].includes(error.name) ? '購入画面の状態を確認できません。開いている画面を閉じ、残高を確認してください。' : error.message;
+    $('topup-message').focus();
+  } finally { setPurchaseBusy(false); }
+  if (closed) {
+    $('topup-dialog').close();
+    if (topupFromPurchase && purchaseOffer && canPurchase()) await requestPurchaseQuote(purchaseOffer);
+    else await getWallet();
+  }
+});

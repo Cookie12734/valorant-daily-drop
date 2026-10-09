@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { snapshotFromStorefront } from './riot-client.mjs';
 import { nightMarketFromStorefront } from './night-market.mjs';
 import { createPurchaseController, PurchaseError } from './purchase.mjs';
+import { createTopUpController, TopUpError } from './topup.mjs';
 
 const REDIRECT = 'https://playvalorant.com/opt_in';
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
@@ -72,14 +73,15 @@ export async function sessionShop(session, request = fetch, mode = 'daily') {
 }
 
 // ponytail: one local user per helper process; do not expose this server to a network.
-export function createLoginController({ openLogin, connect = accountSession, loadShop = sessionShop, clearSavedLogin = async () => {}, now = Date.now, purchaseFile } = {}) {
+export function createLoginController({ openLogin, openPayment, connect = accountSession, loadShop = sessionShop, clearSavedLogin = async () => {}, now = Date.now, purchaseFile } = {}) {
   let state = 'signed_out', error, session, attempt, generation = 0, lastStart = -Infinity;
   let clearing, mustClear = false;
   function status() {
-    if (session && session.expiresAt <= now() + 15000) { session = undefined; state = 'signed_out'; }
+    if (session && session.expiresAt <= now() + 15000) { topup?.cancel(); session = undefined; state = 'signed_out'; }
     return { state, ...(error ? { error } : {}) };
   }
   function reset() {
+    topup?.cancel();
     generation++;
     session = undefined;
     state = 'signed_out';
@@ -118,11 +120,15 @@ export function createLoginController({ openLogin, connect = accountSession, loa
     } catch { state = 'error'; error = 'ログイン画面を開けませんでした。補助アプリを再起動してください。'; }
     return status();
   }
+  const topup = openPayment ? createTopUpController({ openWindow: openPayment, getSession: () => {
+    if (status().state !== 'signed_in') throw new TopUpError('Riotアカウントでログインしてください。');
+    return session;
+  } }) : undefined;
   const purchases = purchaseFile ? createPurchaseController({ journalFile: purchaseFile, now, getSession: () => {
     if (status().state !== 'signed_in') throw new PurchaseError('Riotアカウントでログインしてください。');
     return session;
   } }) : undefined;
-  return { status, start, logout, dispose: reset, ...(purchases ? { purchases } : {}), async shop(mode = 'daily') {
+  return { status, start, logout, dispose: reset, ...(topup ? { topup } : {}), ...(purchases ? { purchases } : {}), async shop(mode = 'daily') {
     if (status().state !== 'signed_in') throw new LoginError('Riotアカウントでログインしてください。');
     const current = generation;
     const snapshot = await loadShop(session, undefined, mode);

@@ -71,19 +71,30 @@ export async function createLocalServer({ directory = fileURLToPath(new URL('../
         json(response, 403, { error: 'このページから接続し直してください。' }); return;
       }
     }
-    if (path === '/api/status' && request.method === 'GET') { json(response, 200, { local: true, ...(auth ? { login: true, auth: auth.status() } : {}), ...(auth?.purchases ? { purchase: true } : {}) }); return; }
+    if (path === '/api/status' && request.method === 'GET') { json(response, 200, { local: true, ...(auth ? { login: true, auth: auth.status() } : {}), ...(auth?.purchases ? { purchase: true } : {}), ...(auth?.topup ? { topup: true } : {}) }); return; }
     if (path === '/api/update/status' && request.method === 'GET') { json(response, updater ? 200 : 404, updater ? updater.status() : { error: 'デスクトップ版専用です。' }); return; }
     if (['/api/update/check', '/api/update/install'].includes(path)) {
       if (!validShopRequest(request, port)) { json(response, 403, { error: '同一画面からのJSON POSTが必要です。' }); return; }
       try { if (Object.keys(await jsonBody(request)).length) throw new Error(); } catch { json(response, 400, { error: '空のJSONが必要です。' }); return; }
       if (!updater) { json(response, 404, { error: 'デスクトップ版専用です。' }); return; }
       try {
-        if (path.endsWith('/install') && auth?.purchases?.isBusy) throw new Error('購入処理が終わってから更新してください。');
+        if (path.endsWith('/install') && (auth?.purchases?.isBusy || auth?.topup?.isBusy)) throw new Error('購入処理が終わってから更新してください。');
         json(response, 200, await (path.endsWith('/check') ? updater.check() : updater.install()));
       } catch (error) { json(response, 409, { error: error.message }); }
       return;
     }
+    if (['/api/topup/start', '/api/topup/status'].includes(path)) {
+      if (!validShopRequest(request, port)) { json(response, 403, { error: '同一画面からのJSON POSTが必要です。' }); return; }
+      try { if (Object.keys(await jsonBody(request)).length) throw new Error(); } catch { json(response, 400, { error: '空のJSONが必要です。' }); return; }
+      if (!auth?.topup || auth.status().state !== 'signed_in') { json(response, 401, { error: 'デスクトップアプリでログインしてください。' }); return; }
+      if (path.endsWith('/status')) { json(response, 200, auth.topup.status()); return; }
+      if (updater?.busy || auth.purchases?.isBusy) { json(response, 409, { error: '購入処理または更新が終わるまでお待ちください。' }); return; }
+      try { json(response, 200, await auth.topup.start()); }
+      catch { json(response, 409, { error: 'VP購入画面を開けませんでした。ログイン状態を確認してください。' }); }
+      return;
+    }
     if (['/api/purchase/quote', '/api/purchase/confirm', '/api/purchase/status'].includes(path)) {
+      if (auth?.topup?.isBusy) { json(response, 409, { error: 'VP購入画面を閉じて残高を確認してください。' }); return; }
       if (updater?.busy) { json(response, 409, { error: 'アプリの更新中です。再起動後に購入してください。' }); return; }
       if (request.method !== 'POST') { response.setHeader('Allow', 'POST'); json(response, 405, { error: 'POST が必要です。' }); return; }
       if (!validShopRequest(request, port)) { json(response, 403, { error: 'このページから接続し直してください。' }); return; }
@@ -93,8 +104,9 @@ export async function createLocalServer({ directory = fileURLToPath(new URL('../
       const action = path.split('/').at(-1);
       if (action === 'status' && Object.keys(body).length) { json(response, 400, { error: '空の JSON オブジェクトが必要です。' }); return; }
       if (updater?.busy) { json(response, 409, { error: 'アプリの更新中です。再起動後に購入してください。' }); return; }
+      if (auth.topup?.isBusy) { json(response, 409, { error: 'VP購入画面を閉じて残高を確認してください。' }); return; }
       try { json(response, 200, await auth.purchases[action](body)); }
-      catch (error) { json(response, 409, { error: error instanceof PurchaseError ? error.message : '購入処理を完了できません。購入結果を確認してください。' }); }
+      catch (error) { json(response, 409, { error: error instanceof PurchaseError ? error.message : '購入処理を完了できません。購入結果を確認してください。', ...(error instanceof PurchaseError && error.code === 'INSUFFICIENT_VP' ? { code: error.code, balance: error.balance, price: error.price } : {}) }); }
       return;
     }
     if (['/api/shop', '/api/night-market', '/api/accessory', '/api/wallet', '/api/login', '/api/logout'].includes(path)) {
@@ -105,7 +117,7 @@ export async function createLocalServer({ directory = fileURLToPath(new URL('../
         if (!auth) { json(response, 503, { error: 'npm startでログイン補助アプリを起動してください。' }); return; }
         try {
           if (path === '/api/login') auth.start(); else await auth.logout();
-          json(response, path === '/api/login' ? 202 : 200, { local: true, login: true, auth: auth.status(), ...(auth.purchases ? { purchase: true } : {}) });
+          json(response, path === '/api/login' ? 202 : 200, { local: true, login: true, auth: auth.status(), ...(auth.purchases ? { purchase: true } : {}), ...(auth.topup ? { topup: true } : {}) });
         } catch (error) { json(response, 429, { error: error instanceof LoginError ? error.message : '操作できませんでした。' }); }
         return;
       }

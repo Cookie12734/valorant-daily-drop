@@ -2,6 +2,7 @@ import { app, BrowserWindow, session, shell, dialog, Menu } from 'electron';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createUpdater } from './updater.mjs';
+import { openPaymentWindow } from './payment-window.mjs';
 import { createLocalServer } from './local-server.mjs';
 import { authorizationRequest, parseAuthRedirect, createLoginController, LoginError } from './riot-login.mjs';
 
@@ -71,7 +72,7 @@ const partition = session.fromPartition('persist:riot-login', { cache: false });
 partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 partition.setPermissionCheckHandler(() => false);
 partition.on('will-download', event => event.preventDefault());
-const auth = createLoginController({ purchaseFile: join(profile, 'purchase-state.json'), openLogin: () => openLogin(partition, mainWindow), clearSavedLogin: async () => {
+const auth = createLoginController({ openPayment: url => openPaymentWindow(url, mainWindow), purchaseFile: join(profile, 'purchase-state.json'), openLogin: () => openLogin(partition, mainWindow), clearSavedLogin: async () => {
   await partition.clearStorageData();
   await partition.cookies.flushStore();
 } });

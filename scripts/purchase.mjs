@@ -72,7 +72,8 @@ export function createPurchaseController({ getSession, journalFile, request = fe
     if (candidates.length !== 1 || !UUID.test(offer?.OfferID) || offer.IsDirectPurchase !== true || !panel.SingleItemOffers?.includes(offer.OfferID) || !Array.isArray(offer.Rewards) || offer.Rewards.length !== 1 || offer.Rewards[0].ItemTypeID !== SKIN || offer.Rewards[0].Quantity !== 1 || !offer.Cost || Object.keys(offer.Cost).length !== 1 || !Number.isSafeInteger(offer.Cost[VP]) || offer.Cost[VP] <= 0 || offer.Cost[VP] !== price) throw new PurchaseError('商品または価格が変わりました。ショップを更新してください。');
     const wallet = await json(`${ctx.base}/store/v1/wallet/${session.subject}`, { headers: ctx.headers });
     const balance = wallet.Balances?.[VP];
-    if (!Number.isSafeInteger(balance) || balance < price) throw new PurchaseError('VPが不足しているか、残高を確認できません。');
+    if (!Number.isSafeInteger(balance) || balance < 0) throw new PurchaseError('VP残高を確認できません。');
+    if (balance < price) throw Object.assign(new PurchaseError(`VPが${price - balance}不足しています。`), { code: 'INSUFFICIENT_VP', balance, price });
     if (await owned(ctx, session, skinId)) throw new PurchaseError('このスキンは既に所持しています。');
     stillSignedIn(session);
     return { ctx, offerId: offer.OfferID, itemTypeId: SKIN, balance };

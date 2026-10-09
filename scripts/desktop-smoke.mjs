@@ -25,11 +25,11 @@ app.once('browser-window-created', (_event, window) => {
       assert.equal(preferences.contextIsolation, true);
       assert.equal(preferences.sandbox, true);
       assert.equal((await fetch(`${origin}/api/status`)).status, 403, 'native callers cannot read status');
-      for (const path of ['/api/login', '/api/logout', '/api/shop', '/api/night-market', '/api/accessory', '/api/wallet', '/api/purchase/quote', '/api/purchase/confirm', '/api/purchase/status']) {
+      for (const path of ['/api/login', '/api/logout', '/api/shop', '/api/night-market', '/api/accessory', '/api/wallet', '/api/purchase/quote', '/api/purchase/confirm', '/api/purchase/status', '/api/topup/start', '/api/topup/status']) {
         assert.equal((await fetch(origin + path, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
       }
       const status = await window.webContents.executeJavaScript(`fetch('/api/status').then(r => r.json())`);
-      assert.deepEqual(status, { local: true, login: true, purchase: true, auth: { state: 'signed_out' } });
+      assert.deepEqual(status, { local: true, login: true, purchase: true, topup: true, auth: { state: 'signed_out' } });
       assert.equal(new URL(window.webContents.getURL()).hash, '');
       assert.equal(await window.webContents.executeJavaScript(`sessionStorage.length`), 0);
       const page = await (await fetch(origin)).text();
@@ -51,14 +51,14 @@ app.once('browser-window-created', (_event, window) => {
       const switching = await window.webContents.executeJavaScript(`(async () => {
         const originalFetch = window.fetch;
         let active = true;
-        let walletMode = 'success', vp = 1200, releaseWallet;
+        let walletMode = 'success', vp = 1200, releaseWallet, insufficient = false, topupStarts = 0;
         let purchaseResult = 'idle', confirmations = 0, loseResponse = false;
         const offers = Array.from({length:6}, (_, i) => ({id:'00000000-0000-0000-0000-' + String(i + 1).padStart(12,'0'), price:1000, originalPrice:2000, discountPercent:50}));
         const base = {schemaVersion:1,source:'riot-login',region:'ap',fetchedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+3600000).toISOString()};
         window.fetch = async (url, options) => {
           if (String(url).startsWith('https://valorant-api.com/')) return Response.json({data:{displayName:'テスト ヴァンダル',displayIcon:'https://media.valorant-api.com/test.png'}});
-          if (url === '/api/login') return Response.json({local:true,login:true,purchase:true,auth:{state:'signed_in'}});
-          if (url === '/api/logout') return Response.json({local:true,login:true,purchase:true,auth:{state:'signed_out'}});
+          if (url === '/api/login') return Response.json({local:true,login:true,purchase:true,topup:true,auth:{state:'signed_in'}});
+          if (url === '/api/logout') return Response.json({local:true,login:true,purchase:true,topup:true,auth:{state:'signed_out'}});
           if (url === '/api/wallet') {
             if (walletMode === 'hold') return new Promise(resolve => { releaseWallet=()=>resolve(Response.json({VP:9999,RP:9999,KC:9999})); });
             if (walletMode === 'error') throw new TypeError('test offline');
@@ -67,8 +67,10 @@ app.once('browser-window-created', (_event, window) => {
           if (url === '/api/shop') return Response.json({...base,offers:offers.slice(0,4)});
           if (url === '/api/night-market') return Response.json({...base,kind:'night-market',active,expiresAt:active?base.expiresAt:null,offers:active?offers:[]});
           if (url === '/api/accessory') return Response.json({...base,kind:'accessory',offers:offers.slice(0,4).map((o,i)=>({id:o.id,offerId:o.id,price:4000,itemTypeId:['dd3bf334-87f3-40bd-b043-682a57a8dc3a','d5f120f8-ff8c-4aac-92ea-f2b5acbe9475','3f296c07-64c3-494c-923b-fe692a4fa1bd','de7caa6b-adf7-4588-bbd1-143831e786c6'][i]}))});
+          if (url === '/api/topup/start') { topupStarts++; return Response.json({state:'open'}); }
+          if (url === '/api/topup/status') { vp=2300; insufficient=false; return Response.json({state:'closed'}); }
           if (url === '/api/purchase/status') return Response.json({state:purchaseResult});
-          if (url === '/api/purchase/quote') { const input=JSON.parse(options.body); return Response.json({quoteId:crypto.randomUUID(),skinId:input.skinId,currency:input.mode==='accessory'?'KC':'VP',price:input.expectedPrice,balance:5000,expiresAt:new Date(Date.now()+60000).toISOString()}); }
+          if (url === '/api/purchase/quote') { const input=JSON.parse(options.body); if(insufficient) return Response.json({error:'VPが不足しています。',code:'INSUFFICIENT_VP'},{status:409}); return Response.json({quoteId:crypto.randomUUID(),skinId:input.skinId,currency:input.mode==='accessory'?'KC':'VP',price:input.expectedPrice,balance:5000,expiresAt:new Date(Date.now()+60000).toISOString()}); }
           if (url === '/api/purchase/confirm') { confirmations++; purchaseResult=loseResponse?'unknown':'pending'; if(loseResponse) throw new TypeError('test lost response'); return Response.json({state:purchaseResult}); }
           return originalFetch(url, options);
         };
@@ -86,6 +88,13 @@ app.once('browser-window-created', (_event, window) => {
           vp=1300; document.querySelector('#wallet-refresh-button').click();
           await wait(()=>!document.querySelector('#wallet-refresh-button').disabled);
           const walletRefreshes=document.querySelector('#wallet-VP').textContent==='1,300 VP';
+          document.querySelector('#wallet-topup-button').click();
+          const topupRect=document.querySelector('#topup-dialog').getBoundingClientRect();
+          const topupFits=topupRect.left>=0 && topupRect.right<=innerWidth && topupRect.bottom<=innerHeight;
+          document.querySelector('#topup-open-button').click();
+          document.querySelector('#topup-open-button').click();
+          await wait(()=>!document.querySelector('#topup-dialog').open && document.querySelector('#wallet-VP').textContent==='2,300 VP');
+          const topupWallet=topupStarts===1 && confirmations===0;
           walletMode='error'; document.querySelector('#wallet-refresh-button').click();
           await wait(()=>!document.querySelector('#wallet-refresh-button').disabled);
           const walletError=document.querySelector('#wallet-balances').hidden && document.querySelector('#wallet-VP').textContent==='—' && document.querySelector('#wallet-message').textContent.includes('取得できません');
@@ -125,6 +134,16 @@ app.once('browser-window-created', (_event, window) => {
           document.querySelector('.skin-card').click();
           document.querySelector('#skin-purchase-button').click();
           await wait(()=>document.querySelector('#purchase-confirm-button').disabled===false);
+          document.querySelector('#purchase-cancel-button').click();
+          insufficient=true;
+          document.querySelector('.skin-card').click();
+          document.querySelector('#skin-purchase-button').click();
+          await wait(()=>!document.querySelector('#purchase-topup-button').hidden && !document.querySelector('#purchase-topup-button').disabled);
+          const insufficientBlocked=document.querySelector('#purchase-confirm-button').disabled;
+          document.querySelector('#purchase-topup-button').click();
+          document.querySelector('#topup-open-button').click();
+          await wait(()=>!document.querySelector('#topup-dialog').open && !document.querySelector('#purchase-confirm-button').disabled);
+          const topupPurchase=topupStarts===2 && confirmations===0 && document.querySelector('#purchase-topup-button').hidden;
           const quoteShowsPrice=document.querySelector('#purchase-price').textContent==='1,000 VP' && document.querySelector('#purchase-after-balance').textContent==='4,000 VP';
           const dialogRect=document.querySelector('#purchase-dialog').getBoundingClientRect();
           const dialogFits=dialogRect.left>=0 && dialogRect.right<=innerWidth && dialogRect.bottom<=innerHeight;
@@ -161,10 +180,10 @@ app.once('browser-window-created', (_event, window) => {
           releaseWallet();
           await new Promise(r=>setTimeout(r,30));
           const walletLogout=document.querySelector('#wallet-button').hidden && !document.querySelector('#wallet-dialog').open && document.querySelector('#wallet-balances').hidden && document.querySelector('#wallet-VP').textContent==='—';
-          return {walletShowsBalances,walletFits,walletRefreshes,walletError,walletInvalid,walletLogout,accessory,accessoryFits,accessoryQuote,accessoryPurchased,selected,discounted,daily,inactive,sixFits,quoteShowsPrice,dialogFits,cancelledWithoutCharge,singleSend,completed,noRetry};
+          return {topupFits,topupWallet,insufficientBlocked,topupPurchase,walletShowsBalances,walletFits,walletRefreshes,walletError,walletInvalid,walletLogout,accessory,accessoryFits,accessoryQuote,accessoryPurchased,selected,discounted,daily,inactive,sixFits,quoteShowsPrice,dialogFits,cancelledWithoutCharge,singleSend,completed,noRetry};
         } finally { window.fetch=originalFetch; }
       })()`);
-      assert.deepEqual(switching, { walletShowsBalances: true, walletFits: true, walletRefreshes: true, walletError: true, walletInvalid: true, walletLogout: true, accessory: true, accessoryFits: true, accessoryQuote: true, accessoryPurchased: true, selected: true, discounted: true, daily: true, inactive: true, sixFits: true, quoteShowsPrice: true, dialogFits: true, cancelledWithoutCharge: true, singleSend: true, completed: true, noRetry: true });
+      assert.deepEqual(switching, { topupFits: true, topupWallet: true, insufficientBlocked: true, topupPurchase: true, walletShowsBalances: true, walletFits: true, walletRefreshes: true, walletError: true, walletInvalid: true, walletLogout: true, accessory: true, accessoryFits: true, accessoryQuote: true, accessoryPurchased: true, selected: true, discounted: true, daily: true, inactive: true, sixFits: true, quoteShowsPrice: true, dialogFits: true, cancelledWithoutCharge: true, singleSend: true, completed: true, noRetry: true });
       const updates = await window.webContents.executeJavaScript(`(async () => {
         const originalFetch = window.fetch;
         let installs = 0;
