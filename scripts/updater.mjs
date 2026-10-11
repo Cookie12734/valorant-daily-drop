@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const repo = 'Cookie12734/valorant-daily-drop';
@@ -91,13 +91,26 @@ export function createUpdater({ currentVersion, installDirectory, supported, qui
       state.phase = 'preparing';
       const powershell = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
       await promisify(execFile)(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(work, 'update.ps1'), '-Config', join(work, 'config.json'), '-Prepare'], { windowsHide: true, timeout: 180000 });
-      const child = spawn(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(work, 'update.ps1'), '-Config', join(work, 'config.json')], { detached: true, stdio: 'ignore', windowsHide: true, cwd: work });
-      await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
-      child.unref();
-      for (let attempt = 0; attempt < 100; attempt++) {
-        try { await readFile(join(work, 'ready')); state.phase = 'restarting'; quit(); return; } catch { await new Promise(resolve => setTimeout(resolve, 100)); }
+      // DETACHED_PROCESS makes Windows PowerShell exit without executing the script.
+      // Start-Process gives it its own hidden console that survives the app's exit.
+      const literal = value => `'${value.replaceAll("'", "''")}'`;
+      const encode = value => Buffer.from(value, 'utf16le').toString('base64');
+      const command = encode(`& ${literal(join(work, 'update.ps1'))} -Config ${literal(join(work, 'config.json'))}`);
+      const launch = `$ErrorActionPreference = 'Stop'; Start-Process -FilePath ${literal(powershell)} -ArgumentList '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', '${command}' -WorkingDirectory ${literal(work)} -WindowStyle Hidden`;
+      try {
+        await promisify(execFile)(powershell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encode(launch)], { windowsHide: true, timeout: 15000 });
+        for (let attempt = 0; attempt < 100; attempt++) {
+          let ready = false;
+          try { await readFile(join(work, 'ready')); ready = true; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+          if (ready) { state.phase = 'restarting'; quit(); return; }
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        throw new Error('更新プログラムを起動できませんでした。');
+      } catch (error) {
+        // Do not leave a late-starting helper armed after reporting a failed attempt.
+        await writeFile(join(work, 'cancelled'), 'cancelled');
+        throw error;
       }
-      throw new Error('更新プログラムを起動できませんでした。');
     })().catch(error => { state.phase = 'error'; state.error = error.message; busy = false; });
     return status();
   }

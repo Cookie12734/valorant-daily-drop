@@ -27,10 +27,16 @@ if ($Prepare) {
   if ($manifest.version -ne $settings.version -or $manifest.name -ne 'valorant-daily-drop' -or -not (Test-Path -LiteralPath (Join-Path $staged 'DailyDrop.exe'))) { throw 'Invalid application package' }
   exit 0
 }
+if (Test-Path -LiteralPath (Join-Path $work 'cancelled')) { exit 0 }
 Set-Content -LiteralPath (Join-Path $work 'ready') -Value 'ready'
 try {
   $running = Get-Process -Id $settings.pid -ErrorAction SilentlyContinue
-  if ($running -and -not $running.WaitForExit(60000)) { throw 'Application did not exit' }
+  $deadline = [DateTime]::UtcNow.AddSeconds(60)
+  while ($running -and -not $running.WaitForExit(200)) {
+    if (Test-Path -LiteralPath (Join-Path $work 'cancelled')) { exit 0 }
+    if ([DateTime]::UtcNow -ge $deadline) { throw 'Application did not exit' }
+  }
+  if (Test-Path -LiteralPath (Join-Path $work 'cancelled')) { exit 0 }
   # Rename only the verified installation and its sibling staging directory.
   for ($attempt = 0; $attempt -lt 30; $attempt++) {
     try { Move-Item -LiteralPath $target -Destination $backup; break } catch { if ($attempt -eq 29) { throw }; Start-Sleep -Milliseconds 500 }
