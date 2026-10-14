@@ -1,6 +1,6 @@
 {
   "name": "valorant-daily-drop",
-  "version": "1.4.0-preview.6",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "main": "scripts/desktop.mjs",
@@ -19,4 +19,3 @@
     "electron": "44.5.1"
   }
 }
-

@@ -10,6 +10,20 @@ export function setupUpdates(request) {
     $('update-version').textContent = state.release ? `${state.currentVersion} → ${state.release.version} · ${state.release.name}` : `現在のバージョン：${state.currentVersion}`;
     $('update-notes').textContent = state.release?.notes ?? '';
     $('update-message').textContent = state.error || phases[state.phase] || (state.supported ? state.release ? '新しいバージョンを利用できます。' : '現在は最新版です。' : '自動更新はWindows配布版で利用できます。');
+    $('update-progress').hidden = state.phase !== 'downloading';
+    if (state.phase === 'downloading') {
+      const downloaded = Math.max(0, state.downloadedBytes || 0);
+      const total = state.totalBytes;
+      const bar = $('update-progress-bar');
+      const mb = bytes => (bytes / 1_000_000).toFixed(1);
+      if (Number.isFinite(total) && total > 0) {
+        bar.value = Math.min(100, downloaded / total * 100);
+        $('update-progress-size').textContent = `${mb(downloaded)} MB / ${mb(total)} MB`;
+      } else {
+        bar.removeAttribute('value');
+        $('update-progress-size').textContent = `${mb(downloaded)} MB / 容量確認中`;
+      }
+    }
     $('update-install').disabled = updating || !state.supported || !state.release;
     $('update-check').disabled = updating;
     dialog.setAttribute('aria-busy', String(updating));

@@ -152,3 +152,5 @@ dialog code { font-family: var(--font-display); font-size: var(--text-small); wo
 body[data-market='accessory'] .weapon-art img { transform: none; }
 #update-notes { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 35vh; overflow-y: auto; }
 #update-button { margin-bottom: 8px; }
+#update-progress-bar { display: block; width: 100%; height: 8px; accent-color: var(--color-accent); }
+#update-progress-size { margin-block: 8px 16px; text-align: right; font-variant-numeric: tabular-nums; font-size: var(--text-small); }

@@ -33,15 +33,20 @@ function assetURL(asset, tag) {
   if (asset.browser_download_url !== expected) throw new Error('配布ファイルのURLを確認できません。');
   return expected;
 }
-async function download(url, limit, request) {
+async function download(url, limit, request, onProgress, expectedSize) {
   const response = await request(url, { signal: AbortSignal.timeout(180000), headers: { 'User-Agent': 'DailyDrop-Updater' } });
   if (!response.ok) throw new Error(`GitHubから取得できません（HTTP ${response.status}）。時間をおいて再試行してください。`);
+  const contentLength = Number(response.headers?.get('content-length'));
+  const total = Number.isSafeInteger(contentLength) && contentLength > 0 ? contentLength : expectedSize;
   const chunks = []; let size = 0;
+  onProgress?.(size, total);
   for await (const chunk of response.body) {
     size += chunk.length;
     if (size > limit) throw new Error('配布ファイルのサイズが上限を超えています。');
     chunks.push(chunk);
+    onProgress?.(size, total);
   }
+  onProgress?.(size, size);
   return Buffer.concat(chunks);
 }
 export function verifyChecksum(bytes, checksum, name) {
@@ -50,7 +55,7 @@ export function verifyChecksum(bytes, checksum, name) {
 }
 export function createUpdater({ currentVersion, installDirectory, supported, quit, request = fetch }) {
   let release, checking, busy = false, lastCheck = 0;
-  let state = { currentVersion, supported, phase: 'idle', release: null, error: null };
+  let state = { currentVersion, supported, phase: 'idle', release: null, error: null, downloadedBytes: 0, totalBytes: null };
   const status = () => ({ ...state });
   async function check() {
     if (checking) return checking;
@@ -71,6 +76,7 @@ export function createUpdater({ currentVersion, installDirectory, supported, qui
     if (busy) return status();
     if (!supported || !release) throw new Error('インストール済みのWindows配布版で更新を確認してください。');
     busy = true; state.phase = 'downloading'; state.error = null;
+    state.downloadedBytes = 0; state.totalBytes = null;
     const selected = release;
     void (async () => {
       const version = selected.tag_name.replace(/^v/, '');
@@ -78,7 +84,10 @@ export function createUpdater({ currentVersion, installDirectory, supported, qui
       const asset = selected.assets?.find(a => a.name === name);
       const checksum = selected.assets?.find(a => a.name === `${name}.sha256`);
       if (!asset || !checksum) throw new Error('このリリースにはWindows用ZIPとSHA-256ファイルが必要です。');
-      const bytes = await download(assetURL(asset, selected.tag_name), 512 * 1024 * 1024, request);
+      state.totalBytes = Number.isSafeInteger(asset.size) && asset.size > 0 ? asset.size : null;
+      const bytes = await download(assetURL(asset, selected.tag_name), 512 * 1024 * 1024, request, (downloaded, total) => {
+        state.downloadedBytes = downloaded; state.totalBytes = total;
+      }, state.totalBytes);
       const digest = await download(assetURL(checksum, selected.tag_name), 1024, request);
       verifyChecksum(bytes, digest.toString('utf8'), name);
       // Same volume enables atomic directory renames; the previous installation is retained.

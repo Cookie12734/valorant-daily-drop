@@ -37,6 +37,46 @@ test('failed GitHub requests retain a recoverable error', async () => {
   assert.match((await updater.check()).error, /GitHub/);
   assert.equal(updater.status().release, null);
 });
+
+for (const source of ['header', 'asset', 'unknown']) {
+  test(`download progress tracks chunks and resets on retry (${source})`, async () => {
+    const name = 'DailyDrop-1.1.0-win-x64.zip';
+    const base = 'https://github.com/Cookie12734/valorant-daily-drop/releases/download/v1.1.0/';
+    let resume;
+    const waitFor = async predicate => {
+      for (let i = 0; i < 100; i++) {
+        if (predicate()) return;
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+      assert.fail('Progress timed out');
+    };
+    const updater = createUpdater({ currentVersion: '1.0.0', supported: true, request: async url => {
+      if (url.startsWith('https://api.github.com/')) return Response.json([{ tag_name: 'v1.1.0', assets: [name, `${name}.sha256`].map(name => ({ name, size: source === 'unknown' ? undefined : 8, browser_download_url: base + name })) }]);
+      if (url.endsWith('.sha256')) throw new Error('Checksum unavailable');
+      return { ok: true, headers: new Headers(source === 'header' ? { 'content-length': '10' } : {}), body: (async function* () {
+        await new Promise(resolve => { resume = resolve; });
+        yield Buffer.alloc(4);
+        await new Promise(resolve => { resume = resolve; });
+        yield Buffer.alloc(6);
+      })() };
+    } });
+    await updater.check();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const initial = await updater.install();
+      assert.equal(initial.downloadedBytes, 0);
+      await waitFor(() => !!resume);
+      const next = resume; resume = null; next();
+      await waitFor(() => updater.status().downloadedBytes === 4 && !!resume);
+      assert.equal(updater.status().totalBytes, source === 'header' ? 10 : source === 'asset' ? 8 : null);
+      assert.equal(updater.status().phase, 'downloading');
+      const finish = resume; resume = null; finish();
+      await waitFor(() => updater.status().phase === 'error');
+      assert.equal(updater.status().downloadedBytes, 10);
+      assert.equal(updater.status().totalBytes, 10);
+      assert.equal(updater.busy, false);
+    }
+  });
+}
 test('update APIs require the capability, same origin, empty body, and exclude purchases', async () => {
   let installed = 0, purchaseBusy = true;
   const updater = { busy: false, status: () => ({ phase: 'idle' }), check: async () => ({}), install: async () => { installed++; updater.busy = true; return {}; } };

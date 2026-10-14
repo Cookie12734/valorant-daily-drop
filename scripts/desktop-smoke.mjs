@@ -191,7 +191,7 @@ app.once('browser-window-created', (_event, window) => {
         const wait = async predicate => { for(let i=0;i<100;i++){ if(predicate()) return; await new Promise(r=>setTimeout(r,20)); } throw new Error('Update UI timed out'); };
         window.fetch = async (url, options) => {
           if (!String(url).startsWith('/api/update/')) return originalFetch(url, options);
-          if (String(url).endsWith('/install')) { installs++; state.phase = 'downloading'; }
+          if (String(url).endsWith('/install')) { installs++; state.phase = 'downloading'; state.downloadedBytes = 25_000_000; state.totalBytes = 100_000_000; }
           return new Response(JSON.stringify(state), { headers: {'Content-Type':'application/json'} });
         };
         try {
@@ -206,14 +206,18 @@ app.once('browser-window-created', (_event, window) => {
           document.querySelector('#update-install').click();
           await wait(()=>document.querySelector('#update-message').textContent.includes('ダウンロード'));
           const busy = document.querySelector('#update-install').disabled && installs===1;
+          const progress = !document.querySelector('#update-progress').hidden && document.querySelector('#update-progress-bar').value === 25 && document.querySelector('#update-progress-size').textContent === '25.0 MB / 100.0 MB';
+          state.downloadedBytes = 75_000_000;
+          await wait(()=>document.querySelector('#update-progress-bar').value === 75);
+          const progressUpdated = document.querySelector('#update-progress-size').textContent === '75.0 MB / 100.0 MB';
           state.phase='error'; state.error='接続できません。再試行してください。';
           await wait(()=>document.querySelector('#update-message').textContent===state.error);
-          const retry = !document.querySelector('#update-install').disabled;
+          const retry = !document.querySelector('#update-install').disabled && document.querySelector('#update-progress').hidden;
           document.querySelector('#update-dialog').close();
-          return { fits, safeNotes, busy, retry };
+          return { fits, safeNotes, busy, progress, progressUpdated, retry };
         } finally { window.fetch=originalFetch; }
       })()`);
-      assert.deepEqual(updates, { fits: true, safeNotes: true, busy: true, retry: true });
+      assert.deepEqual(updates, { fits: true, safeNotes: true, busy: true, progress: true, progressUpdated: true, retry: true });
       // Another renderer, even in the same Electron session, gets no capability.
       const otherWindow = new BrowserWindow({ show: false, webPreferences: { session: window.webContents.session, sandbox: true, contextIsolation: true, nodeIntegration: false } });
       try {
