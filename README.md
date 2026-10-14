@@ -4,7 +4,7 @@ VALORANTの今日の個人ショップを表示するWindowsデスクトップ�
 
 ## ダウンロードして使う
 
-1. [自動更新に対応したプレビュー版](https://github.com/Cookie12734/valorant-daily-drop/releases/tag/v1.4.0-preview.5)から `DailyDrop-1.4.0-preview.5-win-x64.zip` をダウンロードします。
+1. [自動更新に対応したプレビュー版](https://github.com/Cookie12734/valorant-daily-drop/releases/tag/v1.4.0-preview.6)から `DailyDrop-1.4.0-preview.6-win-x64.zip` をダウンロードします。
 2. ZIPをすべて展開し、フォルダー内の **DailyDrop.exe** を起動します。EXEだけを移動せず、同梱ファイルと一緒に置いてください。
 3. 初回は **Riotでログイン** を押し、アプリのRiot認証ウィンドウでログインします。二段階認証やCAPTCHAもその画面で完了します。「ログイン状態を保持する」を有効にしてください。
 4. 認証後はショップを自動表示します。次回起動時も保存済みのセッションが有効なら、自動で今日のショップを取得します。

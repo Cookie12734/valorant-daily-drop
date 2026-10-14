@@ -43,7 +43,7 @@ test('Riot login callback binding, downstream requests and logout races', async 
   assert.equal(calls.at(-1).options.body, '{}');
   assert.equal(calls.at(-1).options.headers['X-Riot-Entitlements-JWT'], 'test.entitlement');
   assert.equal(JSON.parse(calls.find(call => call.url.includes('riot-geo')).options.body).id_token, 'test.id');
-  await assert.rejects(accountSession(tokens, async () => Response.json({}, { status: 403 })), /認証を拒否/);
+  await assert.rejects(accountSession(tokens, async () => Response.json({}, { status: 403 })), { message: 'VALORANTのサーバーがメンテナンス中です。ショップの情報を取得できませんでした。' });
 
   let complete, clock = 1000;
   const controller = createLoginController({ openLogin: () => ({ result: new Promise(resolve => { complete = resolve; }), cancel() {} }), connect: async value => value, loadShop: async () => shop, now: () => clock });

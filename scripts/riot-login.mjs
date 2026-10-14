@@ -38,7 +38,7 @@ async function riotJson(url, options, request) {
   let response;
   try { response = await request(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(15000) }); }
   catch { throw new LoginError('Riotへの接続に失敗しました。ネットワークを確認してください。'); }
-  if ([401, 403].includes(response.status)) throw new LoginError('Riotに認証を拒否されました。ログアウトして再度ログインしてください。');
+  if ([401, 403].includes(response.status)) throw new LoginError('VALORANTのサーバーがメンテナンス中です。ショップの情報を取得できませんでした。');
   if (response.status === 429) throw new LoginError('Riotのアクセス上限に達しました。しばらく待ってからお試しください。');
   if (!response.ok) throw new LoginError(`${stage}を取得できません（HTTP ${response.status}）。時間をおいて再度お試しください。`);
   try { return await response.json(); } catch { throw new LoginError('Riotの応答形式が変更された可能性があります。'); }
