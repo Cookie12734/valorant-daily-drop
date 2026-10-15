@@ -1,7 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { localJson, parseLockfile } from './riot-client.mjs';
-
 export class TopUpError extends Error {}
 export function paymentURL(raw) {
   let url;
@@ -10,37 +6,34 @@ export function paymentURL(raw) {
   return url.href;
 }
 
-export async function clientPaymentURL(subject, { read = readFile, request = localJson, remote = fetch, localAppData = process.env.LOCALAPPDATA } = {}) {
-  let client;
-  try { client = parseLockfile(await read(join(localAppData, 'Riot Games', 'Riot Client', 'Config', 'lockfile'), 'utf8')); }
-  catch { throw new TopUpError('Riot Clientを起動し、このアプリと同じアカウントでログインしてください。'); }
-  async function checkAccount() {
-    const auth = await request(client, '/entitlements/v1/token');
-    if (!subject || auth?.subject !== subject) throw new TopUpError('Riot Clientとこのアプリのアカウントが一致しません。同じアカウントでログインしてください。');
-    return auth;
-  }
+export async function clientPaymentURL(session, { remote = fetch } = {}) {
+  const { subject, accessToken, entitlement } = session ?? {};
+  if (!subject || [accessToken, entitlement].some(value => typeof value !== 'string' || !value || /[\r\n]/.test(value))) throw new TopUpError('ログイン情報を確認できません。アプリで再度ログインしてください。');
   async function json(url, options) {
-    const response = await remote(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(15000) });
+    let response;
+    try { response = await remote(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(15000) }); }
+    catch { throw new TopUpError('Riotの購入サービスに接続できません。ネットワークを確認して再度お試しください。'); }
+    if ([401, 403].includes(response.status)) throw new TopUpError('Riotの購入サービスで認証できません。アプリで再度ログインしてください。');
     if (!response.ok) throw new TopUpError(`RiotがVP購入画面を発行できませんでした（HTTP ${response.status}）。ログイン状態を確認してください。`);
-    return response.json();
+    try { return await response.json(); }
+    catch { throw new TopUpError('Riotの購入サービスの応答を読み取れません。時間をおいて再度お試しください。'); }
   }
   try {
-    const auth = await checkAccount();
-    if (typeof auth.accessToken !== 'string' || !auth.accessToken || /[\r\n]/.test(auth.accessToken)) throw new Error('Invalid token');
-    const headers = { Authorization: `Bearer ${auth.accessToken}`, 'Content-Type': 'application/json' };
+    // The background Riot launcher exposes a lockfile but no entitlements API.
+    // Use the app's authenticated account, as for wallet/store requests.
+    const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
     const user = await json('https://auth.riotgames.com/userinfo', { headers });
-    if (user.sub !== subject || !/^[a-z]{3}$/i.test(user.country)) throw new TopUpError('購入先のアカウントと登録国を確認できません。');
-    const config = await request(client, '/client-config/v1/config?type=player&app=valorant&patchline=live');
-    const platform = config['payments.pay_plugin.platforms.valorant']?.[user.country.toUpperCase()];
+    if (user?.sub !== subject || !/^[a-z]{3}$/i.test(user?.country)) throw new TopUpError('購入先のアカウントと登録国を確認できません。');
+    const config = await json('https://clientconfig.rpg.riotgames.com/api/v1/config/player?app=valorant&patchline=live', { headers: { ...headers, 'X-Riot-Entitlements-JWT': entitlement } });
+    const platform = config?.['payments.pay_plugin.platforms.valorant']?.[user.country.toUpperCase()];
     if (!platform || !['rgi', 'rgl', 'rgj', 'rgk', 'rgs', 'rgg'].includes(platform.pmc) || !['na', 'eu', 'ap', 'kr', 'br', 'latam'].includes(platform.platformCode)) throw new TopUpError('このアカウントの地域はVP購入に未対応です。');
     // Session schema: installed Riot Client swagger, PaymentsSessionRequest/Response.
     // Endpoint: Riot's public PMC JS. Verified with JP account, without charging.
     const result = await json(`https://edge.${platform.pmc}.pmc.pay.riotgames.com/riotpay/pmc/v2/sessions`, { method: 'POST', headers, body: JSON.stringify({ localeId: 'ja_JP', storefrontAccountCode: `valorant-${platform.platformCode}` }) });
-    await checkAccount();
     return paymentURL(result?.pmcStartUrl);
   } catch (error) {
     if (error instanceof TopUpError) throw error;
-    throw new TopUpError('Riot ClientからVP購入画面を取得できません。同じアカウントでログインして再度お試しください。');
+    throw new TopUpError('RiotからVP購入画面を取得できません。時間をおいて再度お試しください。');
   }
 }
 
@@ -53,10 +46,11 @@ export function createTopUpController({ getSession, openWindow, createURL = clie
     cancel() { generation++; window?.cancel(); window = undefined; state = 'idle'; message = ''; },
     async start() {
       if (this.isBusy) return status();
-      const session = getSession(), current = ++generation;
+      const current = ++generation;
       state = 'opening'; message = '';
       try {
-        const url = paymentURL(await createURL(session.subject));
+        const session = getSession();
+        const url = paymentURL(await createURL(session));
         if (generation !== current || getSession() !== session) throw new TopUpError('ログイン状態が変わったため中止しました。');
         const opened = openWindow(url);
         window = opened;

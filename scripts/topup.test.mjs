@@ -4,24 +4,22 @@ import { clientPaymentURL, createTopUpController, paymentURL } from './topup.mjs
 import { createLocalServer } from './local-server.mjs';
 
 const url = 'https://pmc.pay.riotgames.com/start?s=secret&sc=valorant&vc=VP';
+const session = { subject: 'account', accessToken: 'private-token', entitlement: 'private-entitlement' };
 function fixture() {
-  const state = { subject: 'account', country: 'jpn', post: 0, changeAccount: false };
+  const state = { subject: 'account', country: 'jpn', post: 0 };
   const deps = {
-    localAppData: 'C:/test', read: async () => 'riot:1:12345:secret:https',
-    request: async (_client, path) => {
-      if (path === '/entitlements/v1/token') return { subject: state.subject, accessToken: 'private-token' };
-      assert.equal(path, '/client-config/v1/config?type=player&app=valorant&patchline=live');
-      return { 'payments.pay_plugin.platforms.valorant': { JPN: { pmc: 'rgj', platformCode: 'ap' } } };
-    },
     remote: async (target, options) => {
       assert.equal(options.redirect, 'error');
       assert.equal(options.headers.Authorization, 'Bearer private-token');
       if (target === 'https://auth.riotgames.com/userinfo') return Response.json({ sub: state.subject, country: state.country });
+      if (target === 'https://clientconfig.rpg.riotgames.com/api/v1/config/player?app=valorant&patchline=live') {
+        assert.equal(options.headers['X-Riot-Entitlements-JWT'], session.entitlement);
+        return Response.json({ 'payments.pay_plugin.platforms.valorant': { JPN: { pmc: 'rgj', platformCode: 'ap' } } });
+      }
       assert.equal(target, 'https://edge.rgj.pmc.pay.riotgames.com/riotpay/pmc/v2/sessions');
       assert.equal(options.method, 'POST');
       assert.deepEqual(JSON.parse(options.body), { localeId: 'ja_JP', storefrontAccountCode: 'valorant-ap' });
       state.post++;
-      if (state.changeAccount) state.subject = 'other';
       return Response.json({ pmcStartUrl: url });
     },
   };
@@ -29,17 +27,40 @@ function fixture() {
 }
 test('VP checkout uses registered country, exact Riot host and session creation only', async () => {
   const { state, deps } = fixture();
-  assert.equal(await clientPaymentURL('account', deps), url);
+  assert.equal(await clientPaymentURL(session, deps), url);
   assert.equal(state.post, 1);
   for (const unsafe of ['http://pmc.pay.riotgames.com/start?s=x', 'https://pmc.pay.riotgames.com.evil.test/start?s=x', url.replace('VP', 'RP'), url.replace('/start', '/other'), url.replace('https://', 'https://user@')]) assert.throws(() => paymentURL(unsafe));
 });
 test('account mismatches and unsupported regions cannot create/open checkout', async () => {
   const { state, deps } = fixture();
-  await assert.rejects(clientPaymentURL('other', deps), /一致/);
-  state.country = 'zzz'; await assert.rejects(clientPaymentURL('account', deps), /地域/);
+  await assert.rejects(clientPaymentURL({ ...session, subject: 'other' }, deps), /アカウント/);
+  state.country = 'zzz'; await assert.rejects(clientPaymentURL(session, deps), /地域/);
   assert.equal(state.post, 0);
-  state.country = 'jpn'; state.changeAccount = true;
-  await assert.rejects(clientPaymentURL('account', deps), /一致/);
+});
+
+test('invalid login and service failures are sanitized and distinguishable', async () => {
+  for (const invalid of [undefined, {}, { ...session, accessToken: 'bad\r\ntoken' }]) {
+    await assert.rejects(clientPaymentURL(invalid, { remote: () => assert.fail('must not request') }), /ログイン情報/);
+  }
+  await assert.rejects(clientPaymentURL(session, { remote: async () => { throw new Error('private-token'); } }), /ネットワーク/);
+  await assert.rejects(clientPaymentURL(session, { remote: async () => new Response('', { status: 401 }) }), /認証/);
+  await assert.rejects(clientPaymentURL(session, { remote: async () => new Response('private-token') }), /応答/);
+});
+
+test('changing app account during URL creation prevents opening checkout', async () => {
+  let active = session, release, opened = false;
+  const controller = createTopUpController({ getSession: () => active, createURL: value => {
+    assert.equal(value, session);
+    return new Promise(resolve => { release = resolve; });
+  }, openWindow: () => { opened = true; } });
+  const pending = controller.start();
+  active = { ...session, subject: 'other' };
+  release(url);
+  assert.equal((await pending).state, 'error');
+  assert.equal(opened, false);
+  const expired = createTopUpController({ getSession: () => { throw new Error('private-token'); } });
+  assert.equal((await expired.start()).state, 'error');
+  assert.ok(!expired.status().message.includes('private-token'));
 });
 test('one window at a time, cancel during session creation, sanitized errors and closure', async () => {
   const session = { subject: 'account' };
