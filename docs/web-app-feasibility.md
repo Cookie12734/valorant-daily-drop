@@ -64,3 +64,9 @@ Windows上のCodex内ブラウザーで以下を確認した。iPhone実機の�
 再現用: `npm --prefix web ci`、`node web/node_modules/typescript/bin/tsc --noEmit -p web/tsconfig.json`、`node --test scripts/web-probe.test.mjs`、`npm run build`。ビルドはデスクトップのdist直下を置き換えず、Sites用の `dist/server`・`dist/client`・`dist/.openai` を生成する。
 
 模擬データでは地域別URL、state不一致、外部URL、重複トークン、秘密情報を応答しないことを確認済み。実アカウントでのクラウド経由ショップ取得の成否は、公開後のiPhone実機検証で確認する。
+
+### 接続前の実行環境エラー修正
+
+利用者の「アカウント確認で失敗（通信または応答形式）」をworkerd環境で再現した。原因は `redirect: 'error'` が実行環境で未対応だったこと。`redirect: 'manual'` に変更し、3xx応答は明示的に拒否する。転送先に認証情報を送らない制約は維持する。修正後、固定の模擬トークンでRiotの401応答を受け取るところまで確認できた。
+
+`/api/probe/connectivity` は固定の無効な模擬トークンでアカウント確認APIへの到達性だけを調べる本人限定サイト内の診断用GET。入力データ・実認証情報は受け取らず、段階・HTTPステータス・分類コードだけを返す。401はこの診断において期待する応答であり、実アカウントのショップ取得成功を意味しない。

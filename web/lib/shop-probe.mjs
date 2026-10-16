@@ -1,7 +1,18 @@
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const token = /^[A-Za-z0-9._~+/-]+=*$/;
 export class ProbeError extends Error {
-  constructor(stage, status = 0) { super(stage); this.stage = stage; this.status = status; }
+  constructor(stage, status = 0, reason = 'response') { super(stage); this.stage = stage; this.status = status; this.reason = reason; }
+}
+export function transportReason(error) {
+  if (error?.name === 'TimeoutError' || error?.name === 'AbortError') return 'timeout';
+  // Never return arbitrary exception text: it may contain credentials.
+  const message = String(error?.message ?? '');
+  if (/illegal invocation|incorrect this|requires.*this/i.test(message)) return 'runtime-binding';
+  if (/cache.*(not supported|unsupported)|unsupported.*cache/i.test(message)) return 'runtime-cache';
+  if (/redirect/i.test(message)) return 'redirect';
+  if (['ENOTFOUND','EAI_AGAIN'].includes(error?.cause?.code)) return 'dns';
+  if (error?.name === 'TypeError') return 'network-type-error';
+  return 'network';
 }
 export function parseCallback(raw, state) {
   if (typeof raw !== 'string' || raw.length > 40000 || !/^[a-f0-9]{64}$/.test(state ?? '')) throw new ProbeError('URL確認');
@@ -19,10 +30,13 @@ export function parseCallback(raw, state) {
 export async function probeShop(tokens, request = fetch) {
   async function json(stage, url, options = {}) {
     let response;
-    try { response = await request(url, { ...options, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(15000) }); }
-    catch { throw new ProbeError(stage); }
+    // workerd rejects redirect:'error'. Inspect 3xx manually without ever
+    // forwarding the Authorization header to a redirect destination.
+    try { response = await request(url, { ...options, redirect: 'manual', cache: 'no-store', signal: AbortSignal.timeout(15000) }); }
+    catch (error) { throw new ProbeError(stage, 0, transportReason(error)); }
+    if (response.status >= 300 && response.status < 400) throw new ProbeError(stage, response.status, 'redirect');
     if (!response.ok) throw new ProbeError(stage, response.status);
-    try { return await response.json(); } catch { throw new ProbeError(stage, response.status); }
+    try { return await response.json(); } catch { throw new ProbeError(stage, response.status, 'json'); }
   }
   const headers = { Authorization: `Bearer ${tokens.accessToken}`, 'Content-Type': 'application/json' };
   const player = await json('アカウント確認', 'https://auth.riotgames.com/userinfo', {headers});

@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     const result = await probeShop(parseCallback(body.url,state));
     return reply(result,200,clear);
   } catch(error) {
-    if(error instanceof ProbeError) return reply({ok:false,stage:error.stage,status:error.status,error:error.stage === 'URL確認' ? 'このページでログインを開始し、10分以内に戻り先URLを貼り付けてください。' : `${error.stage}で失敗しました${error.status ? `（HTTP ${error.status}）` : '（通信または応答形式）'}。再検証する場合は最初からログインしてください。`},400,clear);
+    if(error instanceof ProbeError) return reply({ok:false,stage:error.stage,status:error.status,error:error.stage === 'URL確認' ? 'このページでログインを開始し、10分以内に戻り先URLを貼り付けてください。' : `${error.stage}で失敗しました${error.status ? `（HTTP ${error.status}）` : ''}［${error.reason}］。再検証する場合は最初からログインしてください。`},400,clear);
     return reply({ok:false,error:'入力を処理できませんでした。最初から検証してください。'},400,clear);
   }
 }

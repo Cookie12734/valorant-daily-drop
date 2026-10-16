@@ -16,11 +16,27 @@ test('probe only fetches allowed endpoints and returns no tokens or account iden
  const result=await probeShop(parseCallback(callback('/ja-jp/opt_in/'),state),request);
  assert.equal(result.items[0].price,1775);assert.equal(result.items[0].name,'テストスキン');
  assert.ok(!JSON.stringify(result).includes('test.'));assert.ok(!JSON.stringify(result).includes(id));
- for(const c of calls){assert.equal(c.options.redirect,'error');assert.equal(c.options.cache,'no-store');if(new URL(c.url).hostname==='valorant-api.com')assert.equal(c.options.headers,undefined);}
+ for(const c of calls){assert.equal(c.options.redirect,'manual');assert.equal(c.options.cache,'no-store');if(new URL(c.url).hostname==='valorant-api.com')assert.equal(c.options.headers,undefined);}
  assert.equal(calls.filter(c=>c.url.includes('/store/')).length,1);
 });
 test('upstream failures reveal stage/status only and do not retry',async()=>{
  let count=0;
  await assert.rejects(probeShop({accessToken:'secret',idToken:'secret'},async()=>{count++;return new Response('secret body',{status:401});}),e=>e.stage==='アカウント確認'&&e.status===401&&!e.message.includes('secret'));
  assert.equal(count,1);
+});
+test('edge-compatible fetch refuses redirects without sending credentials to the destination',async()=>{
+ let count=0;
+ await assert.rejects(probeShop({accessToken:'secret',idToken:'secret'},async(url,options)=>{
+  count++;if(options.redirect==='error')throw new TypeError('Invalid redirect value');
+  assert.equal(options.redirect,'manual');
+  return new Response(null,{status:302,headers:{Location:'https://evil.test/'}});
+ }),e=>e.reason==='redirect'&&e.status===302);
+ assert.equal(count,1);
+});
+test('transport and JSON errors are distinguishable and never disclose exception text',async()=>{
+ for(const [request,reason] of [
+  [async()=>{throw new DOMException('secret','TimeoutError');},'timeout'],
+  [async()=>{throw new TypeError('secret');},'network-type-error'],
+  [async()=>new Response('secret'), 'json'],
+ ]) await assert.rejects(probeShop({accessToken:'secret',idToken:'secret'},request),e=>e.reason===reason&&!JSON.stringify(e).includes('secret'));
 });
