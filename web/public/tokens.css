@@ -1,0 +1,35 @@
+/* Hallmark · pre-emit critique: P5 H4 E4 S5 R5 V4 */
+:root {
+  color-scheme: dark;
+  --color-paper: oklch(15.5% 0.009 260);
+  --color-paper-2: oklch(19.5% 0.01 260);
+  --color-paper-3: oklch(23.5% 0.012 260);
+  --color-art-top: oklch(27.5% 0.018 260);
+  --color-rule: oklch(31% 0.009 260);
+  --color-control-rule: oklch(58% 0.01 260);
+  --color-muted: oklch(72% 0.009 260);
+  --color-ink: oklch(95% 0.005 260);
+  --color-accent: oklch(71% 0.185 20);
+  --color-accent-ink: oklch(15.5% 0.009 260);
+  --color-focus: oklch(87% 0.01 260);
+  --color-transparent: transparent;
+  --color-overlay: oklch(10% 0.009 260 / 0.88);
+  --font-display: 'Tomorrow', 'Noto Sans JP', sans-serif;
+  --font-body: 'Noto Sans JP', 'Yu Gothic UI', sans-serif;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --text-small: 0.875rem;
+  --text-base: 1rem;
+  --text-large: 1.25rem;
+  --text-heading: clamp(1.75rem, 3.1vw, 2.75rem);
+  --text-clock: clamp(1.5rem, 2.7vw, 2.25rem);
+  --radius-small: 0.25rem;
+  --radius-pill: 100rem;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-micro: 120ms;
+}

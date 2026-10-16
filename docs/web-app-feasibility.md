@@ -1,0 +1,66 @@
+# iPhone単体で使うWeb版の調査
+
+確認日: 2026-10-15
+
+## 要件
+
+- iPhoneのSafariから利用し、ホーム画面から起動できる。
+- PCの電源を切っていても最新の個人ショップを取得できる。
+- Mac、Apple Developer Program、有料サーバーを必要としない。
+
+## 現時点の結論
+
+既存画面のWeb配信は可能だが、現在のRiot認証をブラウザーへそのまま移植できない。要件を満たすWeb版の実装・公開は未完了。PWA化や静的サイトの公開だけでは解決しない。
+
+## コードから確認した制約
+
+- `scripts/riot-login.mjs` の `authorizationRequest()` は `play-valorant-web-prod` のクライアントIDと `https://playvalorant.com/opt_in` のリダイレクト先を使用する。
+- `scripts/desktop.mjs` の `openLogin()` はElectronのナビゲーションイベントから認証結果を取得する。通常のWebページにはこの機能がない。Safariの同一オリジン制約により、別ドメインのログイン後URLのフラグメントを読み取れない。
+- 独自サイトへのコールバックを追加するだけでは、Riot側に登録されているリダイレクト先の代わりにはならない。
+- `scripts/local-server.mjs` はPC内限定の単一利用者サーバー。インターネット公開用の利用者別セッション設計ではないため、そのままクラウドに配置しない。
+- 既存の `.openai/hosting.json` は静的な `dist` の配信を指定している。認証付きのショップ取得にはサーバー処理も必要になる。
+
+## 公開資料から確認した制約
+
+- Riotの公式資料では、個人ショップ追跡は承認されない用途として挙げられ、対応する公式APIがないことが明記されている。公式RSOへの申請だけでショップ取得まで解決するという設計は成立しない。
+- 非公式の直接認証方式にはCAPTCHAやCloudflareの影響があり、現行資料も不安定である旨を記載している。無料ホスティング上での認証成功は未検証。
+- 有料の配布方法やホスティングへ変更しても、この認証問題が自動的に解決するわけではない。
+
+## 実装を再開する条件
+
+iPhoneだけで完結する認証経路を実機で確認する必要がある。ログイン、二段階認証、セッション失効後の再ログイン、ショップ取得までを確認した後に、利用者別セッション・ログアウト・キャッシュ抑止を実装して公開する。
+
+PCからの同期は今回の要件を達成したとは扱わない。ユーザーの追加依頼により、iPhone上で公式ログイン後のURLを手動で受け渡す方法も検証対象とする。認証のためにパスワード、認証結果URL、Cookieをチャットへ送ってもらう必要はない。
+
+## 参照
+
+- [Riot VALORANT API・RSO・Use Cases](https://developer.riotgames.com/docs/valorant)
+- [MDN: 同一オリジンポリシー](https://developer.mozilla.org/ja/docs/Web/Security/Defenses/Same-origin_policy)
+- [非公式認証方式の調査資料](https://valapidocs.techchrism.me/endpoint/auth-request)
+
+## 手動受け渡しの検証結果（2026-10-15）
+
+Windows上のCodex内ブラウザーで以下を確認した。iPhone実機の結果ではない。
+
+1. 現在の `authorizationRequest()` が生成するURLを開くと、Riot公式の `authenticate.riotgames.com` に到達し、ユーザー名・パスワード入力欄を持つサインイン画面が表示された。実アカウントのログインは行っていない。
+2. 実トークンではない `TEST_ONLY_NOT_A_REAL_TOKEN` を使用した `https://playvalorant.com/opt_in#...` を開いたところ、`https://playvalorant.com/ja-jp/opt_in/#...` に移動し、404画面が表示された。移動後もフラグメント内の模擬 `access_token`、`id_token`、`state` はURLに残った。これは模擬値での観測であり、有効な認証結果が同じ挙動になる証明ではない。
+3. 同じ模擬値を既存の `parseAuthRedirect()` に渡すと `/opt_in` は受理され、`/ja-jp/opt_in/` は拒否された。Electronでは転送前のURLを捕捉するため、Webでの手動コピー用には厳密なホスト検証を維持しつつ地域別のパスを扱う専用処理が必要。
+4. `node --test scripts/riot-login.test.mjs` は3件成功。初回は実行環境のループバック接続制限で1件失敗し、制限外で再実行して成功した。これらは模擬データによる既存処理の検証であり、実アカウントでの認証・ショップ取得の証明ではない。
+
+手動コピー方式を不可能とする根拠は得られなかった。一方、実装可能と断定できる段階でもない。次の確認はiPhone上で公式ログインを完了し、アドレス欄に `#access_token=`、`id_token=`、`state=` が残るかを見ること。404画面だけで失敗とは判断しない。URLそのものや認証情報は共有せず、項目の有無のみ報告する。
+
+未検証: 実アカウントでの認証成功後の挙動、iPhoneでのURLコピー、クラウド側からのショップ取得、トークン失効後の再認証。無料・PC不要のWeb版の完成を意味しない。
+
+## 検証ページ（2026-10-16）
+
+利用者により、iPhoneのBraveでRiot Mobileの認証後、404画面のURLに `access_token`・`id_token`・`state` が残ることを確認。次の段階として `/probe` を追加した。Sitesの既存の本人限定アクセスを維持する。
+
+ページで検証開始 → 別タブで公式ログイン → 戻り先URLをコピー → 検証ページに貼り付け → ショップ取得、の順に操作する。開始時のHttpOnly/Secure Cookieにランダムなstateを保持し、10分以内の一致する認証結果だけ受け付ける。前回チャットの検証リンクから取得したURLは使用できない。検証後はCookieを削除し、再検証は最初から行う。
+
+入力URLは同一オリジンPOST本文でサーバーへ送信し、認証情報はRiotの固定エンドポイントにのみ渡す。商品名用のValorant-APIには送信しない。アプリは入力・認証情報をDB・ファイル・ログに保存せず、結果には商品名・価格・確認日時、または失敗段階とHTTPステータスだけを返す。購入機能はない。リロード後の再利用や継続ログインはこの検証版の対象外。
+
+`web/` はSitesのVinextテンプレートを用いたサーバー版。`web/public/` は既存の静的画面を保持し、トップページから従来画面へ移動する。デスクトップの既存ソースは維持する。
+
+再現用: `npm --prefix web ci`、`node web/node_modules/typescript/bin/tsc --noEmit -p web/tsconfig.json`、`node --test scripts/web-probe.test.mjs`、`npm run build`。ビルドはデスクトップのdist直下を置き換えず、Sites用の `dist/server`・`dist/client`・`dist/.openai` を生成する。
+
+模擬データでは地域別URL、state不一致、外部URL、重複トークン、秘密情報を応答しないことを確認済み。実アカウントでのクラウド経由ショップ取得の成否は、公開後のiPhone実機検証で確認する。

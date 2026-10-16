@@ -1,4 +1,10 @@
 node_modules/
+web/dist/
+web/.wrangler/
+web/.sites-runtime/
+dist/server/
+dist/client/
+dist/.openai/
 .sites-runtime/
 .env
 .env.*

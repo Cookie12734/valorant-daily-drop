@@ -1,0 +1,55 @@
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const currencies = { VP: '85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741', RP: 'e59aa87c-4cbf-517a-5983-6e81511be9b7', KC: '85ca954a-41f2-ce94-9b45-8ca3dd39a00d' };
+export function parseWallet(value) {
+  return Object.fromEntries(Object.keys(currencies).map(code => {
+    const balance = value?.[code];
+    if (!Number.isSafeInteger(balance) || balance < 0) throw new Error('残高情報を読み取れません。再取得してください。');
+    return [code, balance];
+  }));
+}
+export function walletFromResponse(value) {
+  return parseWallet(Object.fromEntries(Object.entries(currencies).map(([code, id]) => [code, value?.Balances?.[id]])));
+}
+export function parseNightMarket(value) {
+  const fail = () => { throw new Error('ナイトマーケットの情報を読み取れません。再取得してください。'); };
+  if (!value || value.kind !== 'night-market' || value.schemaVersion !== 1 || !['riot-login', 'riot-client'].includes(value.source) || !['na', 'eu', 'ap', 'kr', 'pbe'].includes(value.region) || typeof value.active !== 'boolean' || !Array.isArray(value.offers) || value.offers.length > 6) fail();
+  const fetched = Date.parse(value.fetchedAt), expires = Date.parse(value.expiresAt);
+  if (!Number.isFinite(fetched) || fetched > Date.now() + 300000 || (value.active ? !Number.isFinite(expires) || expires < fetched || expires - fetched > 90 * 86400000 : value.expiresAt !== null || value.offers.length)) fail();
+  const offers = value.offers.map(offer => {
+    if (!offer || !UUID.test(offer.id) || ![offer.price, offer.originalPrice].every(p => Number.isSafeInteger(p) && p >= 0 && p <= 1000000) || offer.price > offer.originalPrice || !Number.isFinite(offer.discountPercent) || offer.discountPercent < 0 || offer.discountPercent > 100) fail();
+    return { id: offer.id.toLowerCase(), price: offer.price, originalPrice: offer.originalPrice, discountPercent: offer.discountPercent };
+  });
+  if (new Set(offers.map(o => o.id)).size !== offers.length) fail();
+  return { schemaVersion: 1, kind: 'night-market', source: value.source, region: value.region, fetchedAt: new Date(fetched).toISOString(), expiresAt: value.active ? new Date(expires).toISOString() : null, active: value.active, offers };
+}
+export function parseSnapshot(value) {
+  if (!value || value.schemaVersion !== 1 || !['riot-client', 'riot-login'].includes(value.source) ||
+      !['na', 'eu', 'ap', 'kr', 'latam', 'br', 'pbe'].includes(value.region) ||
+      !Array.isArray(value.offers) || value.offers.length > 4) {
+    throw new Error('ショップファイルの形式が違います。npm run shopで生成したshop.jsonを選んでください。');
+  }
+  const fetched = Date.parse(value.fetchedAt);
+  const expires = Date.parse(value.expiresAt);
+  if (!Number.isFinite(fetched) || !Number.isFinite(expires) || expires < fetched ||
+      expires - fetched > 48 * 3600 * 1000 || fetched > Date.now() + 5 * 60 * 1000) {
+    throw new Error('ショップの日時が正しくありません。PCの時計を確認し、ファイルを再取得してください。');
+  }
+  const offers = value.offers.map(offer => {
+    if (!offer || !UUID.test(offer.id) ||
+        (offer.price !== null && (!Number.isSafeInteger(offer.price) || offer.price < 0 || offer.price > 1000000))) {
+      throw new Error('ショップのアイテム情報が正しくありません。ファイルを再取得してください。');
+    }
+    return { id: offer.id.toLowerCase(), price: offer.price };
+  });
+  if (new Set(offers.map(offer => offer.id)).size !== offers.length) {
+    throw new Error('ショップのアイテムが重複しています。ファイルを再取得してください。');
+  }
+  // Import only shop fields; account or authentication fields never enter app state.
+  return { schemaVersion: 1, source: value.source, region: value.region,
+    fetchedAt: new Date(fetched).toISOString(), expiresAt: new Date(expires).toISOString(), offers };
+}
+export function remainingTime(expiresAt, now = Date.now()) {
+  const seconds = Math.max(0, Math.ceil((Date.parse(expiresAt) - now) / 1000));
+  return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+    .map(number => String(number).padStart(2, '0')).join(' : ');
+}

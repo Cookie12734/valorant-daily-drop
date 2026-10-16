@@ -8,6 +8,7 @@
   "scripts": {
     "start": "electron scripts/desktop.mjs",
     "start:client": "node scripts/local-server.mjs",
+    "build": "node scripts/build-web.mjs",
     "package:win": "node scripts/package-win.mjs",
     "shop": "node scripts/export-shop.mjs",
     "test": "node --test scripts/*.test.mjs"
