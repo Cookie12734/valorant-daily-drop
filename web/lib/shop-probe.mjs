@@ -1,3 +1,5 @@
+import {nightMarketFromStorefront} from '../../scripts/night-market.mjs';
+import {accessoryFromStorefront,accessoryTypes} from '../../dist/accessory.mjs';
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const token = /^[A-Za-z0-9._~+/-]+=*$/;
 export class ProbeError extends Error {
@@ -27,7 +29,7 @@ export function parseCallback(raw, state) {
   if (!Number.isSafeInteger(seconds) || seconds <= 0 || seconds > 86400) throw new ProbeError('URL確認');
   return { accessToken, idToken };
 }
-export async function probeShop(tokens, request = fetch) {
+export async function connectRiot(tokens, request = fetch) {
   async function json(stage, url, options = {}) {
     let response;
     // workerd rejects redirect:'error'. Inspect 3xx manually without ever
@@ -50,7 +52,32 @@ export async function probeShop(tokens, request = fetch) {
   const version = (await json('バージョン確認','https://valorant-api.com/v1/version'))?.data?.riotClientVersion;
   if (typeof version !== 'string' || !/^release-\d+\.\d+-shipping-\d+-\d+$/.test(version)) throw new ProbeError('バージョン確認');
   const platform = btoa(JSON.stringify({platformType:'PC',platformOS:'Windows',platformOSVersion:'10.0.19042.1.256.64bit',platformChipset:'Unknown'}));
-  const store = await json('ショップ取得',`https://pd.${shard}.a.pvp.net/store/v3/storefront/${player.sub}`,{method:'POST',body:'{}',headers:{...headers,'X-Riot-Entitlements-JWT':ent.entitlements_token,'X-Riot-ClientPlatform':platform,'X-Riot-ClientVersion':version}});
+  const ctx = {base: `https://pd.${shard}.a.pvp.net`, headers:{...headers,'X-Riot-Entitlements-JWT':ent.entitlements_token,'X-Riot-ClientPlatform':platform,'X-Riot-ClientVersion':version}};
+  return {json,ctx,session:{subject:player.sub,accessToken:tokens.accessToken,entitlement:ent.entitlements_token,shard},getStore:()=>json('ショップ取得',`${ctx.base}/store/v3/storefront/${player.sub}`,{method:'POST',body:'{}',headers:ctx.headers})};
+}
+export async function probeShop(tokens, request = fetch, mode = 'daily') {
+  const client = await connectRiot(tokens,request);
+  return loadMarket(client,mode);
+}
+export async function loadMarket(client,mode='daily') {
+  const {json,session} = client;
+  if(!['daily','night','accessory'].includes(mode))throw new ProbeError('ショップ種類確認');
+  const store = await client.getStore();
+  if(mode !== 'daily') {
+    let normalized;
+    try {normalized=mode==='night'?nightMarketFromStorefront(store,session.shard):accessoryFromStorefront(store,session.shard);}catch {throw new ProbeError('ショップ形式確認');}
+    const items=await Promise.all(normalized.offers.map(async offer=>{
+      const type=accessoryTypes[offer.itemTypeId];
+      let name=offer.id,image=null;
+      try {const data=(await json('商品名確認',`https://valorant-api.com/v1/${type?.[0] || 'weapons/skinlevels'}/${offer.id}?language=ja-JP`))?.data;
+        if(typeof data?.displayName==='string')name=data.displayName.slice(0,200);
+        const candidate=data?.displayIcon||data?.largeArt||data?.fullTransparentIcon;
+        if(safeImage(candidate))image=candidate;
+      }catch{}
+      return {id:offer.id,name,image,price:offer.price,...(mode==='night'?{originalPrice:offer.originalPrice,discountPercent:offer.discountPercent}:{itemTypeId:offer.itemTypeId,typeLabel:type[1]})};
+    }));
+    return {ok:true,mode,items,currency:mode==='accessory'?'KC':'VP',active:mode==='night'?normalized.active:items.length>0,checkedAt:normalized.fetchedAt,expiresAt:normalized.expiresAt};
+  }
   const offers = store?.SkinsPanelLayout?.SingleItemStoreOffers;
   if (!Array.isArray(offers) || offers.length < 1 || offers.length > 4) throw new ProbeError('ショップ形式確認');
   const items = [];
@@ -71,7 +98,7 @@ export async function probeShop(tokens, request = fetch) {
   const now = Date.now();
   const expiresAt = Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 86400
     ? new Date(now + seconds * 1000).toISOString() : null;
-  return {ok:true,items,checkedAt:new Date(now).toISOString(),expiresAt};
+  return {ok:true,mode,items,currency:'VP',active:true,checkedAt:new Date(now).toISOString(),expiresAt};
 }
 
 export function safeImage(value) {
@@ -81,11 +108,21 @@ export function safeImage(value) {
 
 // Only public shop fields may cross into browser storage, never credentials.
 export function shopSnapshot(value) {
-  if (!value?.ok || !Array.isArray(value.items) || value.items.length < 1 || value.items.length > 4 || typeof value.checkedAt !== 'string' || !Number.isFinite(Date.parse(value.checkedAt))) return null;
+  const mode=value?.mode ?? 'daily';
+  if (!['daily','night','accessory'].includes(mode) || !value?.ok || !Array.isArray(value.items) || value.items.length > (mode==='night'?6:4) || mode==='daily' && value.items.length<1 || typeof value.checkedAt !== 'string' || !Number.isFinite(Date.parse(value.checkedAt))) return null;
   const items = [];
   for (const item of value.items) {
     if (!uuid.test(item?.id ?? '') || typeof item.name !== 'string' || !Number.isSafeInteger(item.price) || item.price < 0) return null;
-    items.push({id:item.id,name:item.name.slice(0,200),price:item.price,image:safeImage(item.image) ? item.image : null});
+    const extra={};
+    if(mode==='night'){
+      if(!Number.isSafeInteger(item.originalPrice)||item.originalPrice<item.price||!Number.isSafeInteger(item.discountPercent)||item.discountPercent<0||item.discountPercent>100)return null;
+      extra.originalPrice=item.originalPrice;extra.discountPercent=item.discountPercent;
+    }
+    if(mode==='accessory'){
+      if(!accessoryTypes[item.itemTypeId])return null;
+      extra.itemTypeId=item.itemTypeId;extra.typeLabel=accessoryTypes[item.itemTypeId][1];
+    }
+    items.push({id:item.id,name:item.name.slice(0,200),price:item.price,image:safeImage(item.image) ? item.image : null,...extra});
   }
-  return {ok:true,items,checkedAt:new Date(value.checkedAt).toISOString(),expiresAt:typeof value.expiresAt === 'string' && Number.isFinite(Date.parse(value.expiresAt)) ? new Date(value.expiresAt).toISOString() : null};
+  return {ok:true,mode,currency:mode==='accessory'?'KC':'VP',active:items.length>0,items,checkedAt:new Date(value.checkedAt).toISOString(),expiresAt:typeof value.expiresAt === 'string' && Number.isFinite(Date.parse(value.expiresAt)) ? new Date(value.expiresAt).toISOString() : null};
 }

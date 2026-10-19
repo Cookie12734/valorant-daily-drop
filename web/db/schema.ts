@@ -1,4 +1,11 @@
-// Intentionally empty by default.
-// Add Drizzle tables here when the site actually needs a database.
-// See examples/d1/db/schema.ts for an opt-in example.
-export {};
+import {sqliteTable,text,integer,uniqueIndex,index} from 'drizzle-orm/sqlite-core';
+import {sql} from 'drizzle-orm';
+// Purchase records contain no Riot credentials. Quotes are single-use forever.
+export const webOrders=sqliteTable('web_orders',{
+ id:text('id').primaryKey(),owner:text('owner').notNull(),account:text('account').notNull(),
+ item:text('item').notNull(),offer:text('offer').notNull(),price:integer('price').notNull(),balance:integer('balance').notNull(),
+ expires:integer('expires').notNull(),created:integer('created').notNull(),state:text('state').notNull(),orderId:text('order_id'),
+},table=>[
+ uniqueIndex('web_orders_one_unresolved').on(table.account).where(sql`${table.state} in ('unknown','pending')`),
+ index('web_orders_owner').on(table.owner,table.account,table.created),
+]);
