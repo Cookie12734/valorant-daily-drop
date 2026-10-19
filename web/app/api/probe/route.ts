@@ -7,7 +7,7 @@ function reply(data: unknown, status = 200, cookie?: string) {
 }
 export async function POST(request: Request) {
   if (!await getChatGPTUser()) return reply({error:'ChatGPTにログインしてください。'},401);
-  if (request.headers.get('origin') !== new URL(request.url).origin || !request.headers.get('content-type')?.startsWith('application/json')) return reply({error:'検証ページから操作してください。'},403);
+  if (request.headers.get('origin') !== new URL(request.url).origin || !request.headers.get('content-type')?.startsWith('application/json')) return reply({error:'ショップ画面から操作してください。'},403);
   const action = new URL(request.url).searchParams.get('action');
   if (action === 'start') {
     const state = Array.from(crypto.getRandomValues(new Uint8Array(32)),v=>v.toString(16).padStart(2,'0')).join('');
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     const result = await probeShop(parseCallback(body.url,state));
     return reply(result,200,clear);
   } catch(error) {
-    if(error instanceof ProbeError) return reply({ok:false,stage:error.stage,status:error.status,error:error.stage === 'URL確認' ? 'このページでログインを開始し、10分以内に戻り先URLを貼り付けてください。' : `${error.stage}で失敗しました${error.status ? `（HTTP ${error.status}）` : ''}［${error.reason}］。再検証する場合は最初からログインしてください。`},400,clear);
-    return reply({ok:false,error:'入力を処理できませんでした。最初から検証してください。'},400,clear);
+    if(error instanceof ProbeError) return reply({ok:false,stage:error.stage,status:error.status,error:error.stage === 'URL確認' ? 'このページでログインを開始し、10分以内に戻り先URLを貼り付けてください。' : `${error.stage}で失敗しました${error.status ? `（HTTP ${error.status}）` : ''}［${error.reason}］。接続からやり直してください。`},400,clear);
+    return reply({ok:false,error:'入力を処理できませんでした。接続からやり直してください。'},400,clear);
   }
 }

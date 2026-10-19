@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseCallback,probeShop} from '../web/lib/shop-probe.mjs';
+import {parseCallback,probeShop,shopSnapshot,safeImage} from '../web/lib/shop-probe.mjs';
 const state='a'.repeat(64);
 const callback=path=>`https://playvalorant.com${path}#${new URLSearchParams({state,access_token:'test.access',id_token:'test.id',token_type:'Bearer',expires_in:'3600'})}`;
 test('manual callback accepts localized paths and rejects foreign, mismatched and duplicate credentials',()=>{
@@ -12,9 +12,9 @@ test('manual callback accepts localized paths and rejects foreign, mismatched an
 test('probe only fetches allowed endpoints and returns no tokens or account identifier',async()=>{
  const id='00000000-0000-0000-0000-000000000001',skin='00000000-0000-0000-0000-000000000002';const calls=[];
  const request=async(url,options)=>{calls.push({url,options});let data;
- if(url.endsWith('/userinfo'))data={sub:id};else if(url.includes('entitlements.'))data={entitlements_token:'test.entitlement'};else if(url.includes('riot-geo.'))data={affinities:{live:'ap'}};else if(url.endsWith('/version'))data={data:{riotClientVersion:'release-13.06-shipping-18-5590001'}};else if(url.includes('/store/'))data={SkinsPanelLayout:{SingleItemStoreOffers:[{Rewards:[{ItemID:skin}],Cost:{'85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741':1775}}]}};else data={data:{displayName:'テストスキン'}};return Response.json(data);};
+ if(url.endsWith('/userinfo'))data={sub:id};else if(url.includes('entitlements.'))data={entitlements_token:'test.entitlement'};else if(url.includes('riot-geo.'))data={affinities:{live:'ap'}};else if(url.endsWith('/version'))data={data:{riotClientVersion:'release-13.06-shipping-18-5590001'}};else if(url.includes('/store/'))data={SkinsPanelLayout:{SingleItemOffersRemainingDurationInSeconds:3600,SingleItemStoreOffers:[{Rewards:[{ItemID:skin}],Cost:{'85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741':1775}}]}};else data={data:{displayName:'テストスキン'}};return Response.json(data);};
  const result=await probeShop(parseCallback(callback('/ja-jp/opt_in/'),state),request);
- assert.equal(result.items[0].price,1775);assert.equal(result.items[0].name,'テストスキン');
+ assert.equal(Date.parse(result.expiresAt)-Date.parse(result.checkedAt),3600000);assert.equal(result.items[0].price,1775);assert.equal(result.items[0].name,'テストスキン');
  assert.ok(!JSON.stringify(result).includes('test.'));assert.ok(!JSON.stringify(result).includes(id));
  for(const c of calls){assert.equal(c.options.redirect,'manual');assert.equal(c.options.cache,'no-store');if(new URL(c.url).hostname==='valorant-api.com')assert.equal(c.options.headers,undefined);}
  assert.equal(calls.filter(c=>c.url.includes('/store/')).length,1);
@@ -39,4 +39,14 @@ test('transport and JSON errors are distinguishable and never disclose exception
   [async()=>{throw new TypeError('secret');},'network-type-error'],
   [async()=>new Response('secret'), 'json'],
  ]) await assert.rejects(probeShop({accessToken:'secret',idToken:'secret'},request),e=>e.reason===reason&&!JSON.stringify(e).includes('secret'));
+});
+
+test('saved snapshots allow only shop data and safe catalog images',()=>{
+ const input={ok:true,checkedAt:'2026-10-16T00:00:00.000Z',expiresAt:'2026-10-17T00:00:00.000Z',accessToken:'SECRET',url:'SECRET',items:[{id:'00000000-0000-0000-0000-000000000002',name:'スキン',price:1775,image:'https://media.valorant-api.com/weapons/icon.png',token:'SECRET'}]};
+ const result=shopSnapshot(input);
+ assert.ok(result.items[0].image);assert.ok(!JSON.stringify(result).includes('SECRET'));
+ assert.equal(shopSnapshot({...input,items:[{...input.items[0],image:'https://evil.test/image.png'}]}).items[0].image,null);
+ for(const image of ['javascript:alert(1)','https://media.valorant-api.com.evil.test/i','https://user@media.valorant-api.com/i','https://media.valorant-api.com/i?token=secret'])assert.equal(safeImage(image),false);
+ for(const changed of [{checkedAt:'bad'},{items:[]},{items:[{...input.items[0],price:-1}]}])assert.equal(shopSnapshot({...input,...changed}),null);
+ assert.equal(shopSnapshot({...input,expiresAt:null}).expiresAt,null);
 });

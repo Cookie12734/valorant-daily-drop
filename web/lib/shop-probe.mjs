@@ -59,9 +59,33 @@ export async function probeShop(tokens, request = fetch) {
     const price = offer?.Cost?.['85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741'];
     if (!uuid.test(id ?? '') || !Number.isSafeInteger(price) || price < 0) throw new ProbeError('ショップ形式確認');
     // Public catalog only; never attach Riot credentials here.
-    let name = id;
-    try { const skin = await json('商品名確認',`https://valorant-api.com/v1/weapons/skinlevels/${id}?language=ja-JP`); if (typeof skin?.data?.displayName === 'string') name = skin.data.displayName.slice(0,200); } catch {}
-    items.push({id,name,price});
+    let name = id, image = null;
+    try {
+      const skin = await json('商品名確認',`https://valorant-api.com/v1/weapons/skinlevels/${id}?language=ja-JP`);
+      if (typeof skin?.data?.displayName === 'string') name = skin.data.displayName.slice(0,200);
+      if (safeImage(skin?.data?.displayIcon)) image = skin.data.displayIcon;
+    } catch {}
+    items.push({id,name,price,image});
   }
-  return {ok:true,items,checkedAt:new Date().toISOString()};
+  const seconds = store?.SkinsPanelLayout?.SingleItemOffersRemainingDurationInSeconds;
+  const now = Date.now();
+  const expiresAt = Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 86400
+    ? new Date(now + seconds * 1000).toISOString() : null;
+  return {ok:true,items,checkedAt:new Date(now).toISOString(),expiresAt};
+}
+
+export function safeImage(value) {
+  if (typeof value !== 'string' || value.length > 1000) return false;
+  try { const url = new URL(value); return url.origin === 'https://media.valorant-api.com' && !url.username && !url.password && !url.search && !url.hash; } catch { return false; }
+}
+
+// Only public shop fields may cross into browser storage, never credentials.
+export function shopSnapshot(value) {
+  if (!value?.ok || !Array.isArray(value.items) || value.items.length < 1 || value.items.length > 4 || typeof value.checkedAt !== 'string' || !Number.isFinite(Date.parse(value.checkedAt))) return null;
+  const items = [];
+  for (const item of value.items) {
+    if (!uuid.test(item?.id ?? '') || typeof item.name !== 'string' || !Number.isSafeInteger(item.price) || item.price < 0) return null;
+    items.push({id:item.id,name:item.name.slice(0,200),price:item.price,image:safeImage(item.image) ? item.image : null});
+  }
+  return {ok:true,items,checkedAt:new Date(value.checkedAt).toISOString(),expiresAt:typeof value.expiresAt === 'string' && Number.isFinite(Date.parse(value.expiresAt)) ? new Date(value.expiresAt).toISOString() : null};
 }
