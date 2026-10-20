@@ -1,0 +1,1 @@
+ALTER TABLE `web_orders` ADD `item_type` text DEFAULT 'e7c63390-eda7-46e0-bb7a-a6abdacd2433' NOT NULL;

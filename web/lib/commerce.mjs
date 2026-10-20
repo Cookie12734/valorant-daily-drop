@@ -1,6 +1,7 @@
 import {clientPaymentURL} from '../../scripts/topup.mjs';
+import {accessoryFromStorefront,KC} from '../../dist/accessory.mjs';
 export const VP='85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741';
-const RP='e59aa87c-4cbf-517a-5983-6e81511be9b7',KC='85ca954a-41f2-ce94-9b45-8ca3dd39a00d';
+const RP='e59aa87c-4cbf-517a-5983-6e81511be9b7';
 const SKIN='e7c63390-eda7-46e0-bb7a-a6abdacd2433';
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 export class CommerceError extends Error {}
@@ -24,28 +25,38 @@ export async function accountHash(subject){
 }
 const unresolved=record=>record&&['unknown','pending'].includes(record.state);
 function result(record){
- const messages={idle:'未確認の購入はありません。',quote:'購入確認待ちです。',unknown:'購入結果が未確認です。再送信せず「購入結果を確認」を押してください。',pending:'購入を処理中です。「購入結果を確認」を押してください。',complete:'スキンの所持を確認しました。',failed:'購入は完了していません。商品と価格を改めて確認してください。'};
+ const messages={idle:'未確認の購入はありません。',quote:'購入確認待ちです。',unknown:'購入結果が未確認です。再送信せず「購入結果を確認」を押してください。',pending:'購入を処理中です。「購入結果を確認」を押してください。',complete:'商品の所持を確認しました。',failed:'購入は完了していません。商品と価格を改めて確認してください。'};
  return {state:record?.state||'idle',message:messages[record?.state||'idle']};
 }
 export function createWebCommerce({db,owner,account,client,now=Date.now}){
  if(!db)throw new CommerceError('購入記録に接続できないため、購入できません。');
  const first=(sql,...args)=>db.prepare(sql).bind(...args).first();
  const run=(sql,...args)=>db.prepare(sql).bind(...args).run();
- async function owned(item){
-   const data=await client.json('所持確認',`${client.ctx.base}/store/v1/entitlements/${client.session.subject}/${SKIN}`,{headers:client.ctx.headers});
+ async function owned(item,itemType){
+   const data=await client.json('所持確認',`${client.ctx.base}/store/v1/entitlements/${client.session.subject}/${itemType}`,{headers:client.ctx.headers});
    if(!Array.isArray(data?.Entitlements)||data.Entitlements.some(x=>!uuid.test(x?.ItemID)))throw new CommerceError('所持状態を確認できません。');
    return data.Entitlements.some(x=>x.ItemID.toLowerCase()===item);
  }
- async function inspect(item,price){
-   const store=await client.getStore(),panel=store?.SkinsPanelLayout;
-   if(!Number.isSafeInteger(panel?.SingleItemOffersRemainingDurationInSeconds)||panel.SingleItemOffersRemainingDurationInSeconds<120||!Array.isArray(panel.SingleItemStoreOffers)||panel.SingleItemStoreOffers.length>4)throw new CommerceError('更新直前、または商品を確認できないため購入できません。');
-   const matches=panel.SingleItemStoreOffers.filter(o=>o?.Rewards?.some(r=>r.ItemID?.toLowerCase()===item));
-   const offer=matches[0];
-   if(matches.length!==1||!uuid.test(offer?.OfferID)||offer.IsDirectPurchase!==true||!panel.SingleItemOffers?.includes(offer.OfferID)||offer.Rewards.length!==1||offer.Rewards[0].ItemTypeID!==SKIN||offer.Rewards[0].Quantity!==1||!offer.Cost||Object.keys(offer.Cost).length!==1||offer.Cost[VP]!==price)throw new CommerceError('商品または価格が変わりました。ショップを再取得してください。');
-   const balance=(await wallet(client)).vp;
-   if(balance<price)throw new CommerceError(`VPが${price-balance}不足しています。`);
-   if(await owned(item))throw new CommerceError('このスキンは既に所持しています。');
-   return {offer:offer.OfferID,balance};
+ async function inspect(item,price,mode){
+   const store=await client.getStore();let offer,itemType=SKIN;
+   if(mode==='accessory'){
+     let shop;
+     try{shop=accessoryFromStorefront(store,client.session.shard);}catch{throw new CommerceError('アクセサリーの商品情報を確認できません。');}
+     const selected=shop.offers.find(o=>o.id===item);
+     if(!selected||selected.price!==price||Date.parse(shop.expiresAt)-Date.parse(shop.fetchedAt)<120000)throw new CommerceError('商品または価格が変わったか、更新直前です。ショップを再取得してください。');
+     offer=selected.offerId;itemType=selected.itemTypeId;
+   }else{
+     const panel=store?.SkinsPanelLayout;
+     if(!Number.isSafeInteger(panel?.SingleItemOffersRemainingDurationInSeconds)||panel.SingleItemOffersRemainingDurationInSeconds<120||!Array.isArray(panel.SingleItemStoreOffers)||panel.SingleItemStoreOffers.length>4)throw new CommerceError('更新直前、または商品を確認できないため購入できません。');
+     const matches=panel.SingleItemStoreOffers.filter(o=>o?.Rewards?.some(r=>r.ItemID?.toLowerCase()===item));
+     const selected=matches[0];
+     if(matches.length!==1||!uuid.test(selected?.OfferID)||selected.IsDirectPurchase!==true||!panel.SingleItemOffers?.includes(selected.OfferID)||selected.Rewards.length!==1||selected.Rewards[0].ItemTypeID!==SKIN||selected.Rewards[0].Quantity!==1||!selected.Cost||Object.keys(selected.Cost).length!==1||selected.Cost[VP]!==price)throw new CommerceError('商品または価格が変わりました。ショップを再取得してください。');
+     offer=selected.OfferID;
+   }
+   const currency=mode==='accessory'?'KC':'VP',balance=(await wallet(client))[currency.toLowerCase()];
+   if(balance<price)throw new CommerceError(`${currency}が${price-balance}不足しています。`);
+   if(await owned(item,itemType))throw new CommerceError('この商品は既に所持しています。');
+   return {offer,balance,itemType};
  }
  async function reconcile(record){
    if(!unresolved(record))return result(record);
@@ -55,19 +66,19 @@ export function createWebCommerce({db,owner,account,client,now=Date.now}){
        const order=await client.json('購入結果確認',`${client.ctx.base}/store/v1/order/${record.order_id}`,{headers:client.ctx.headers});
        if(order?.OrderID!==record.order_id||!['ACCEPTED','COMPLETE','FAILED'].includes(order.Status))throw Error();
        if(order.Status==='FAILED')state='failed';
-       else if(order.Status==='COMPLETE'&&await owned(record.item))state='complete';
-     }else if(await owned(record.item))state='complete';
+       else if(order.Status==='COMPLETE'&&await owned(record.item,record.item_type))state='complete';
+     }else if(await owned(record.item,record.item_type))state='complete';
      if(state!==record.state)await run("UPDATE web_orders SET state=? WHERE id=? AND owner=? AND account=? AND state IN ('unknown','pending')",state,record.id,owner,account);
    }catch{/* Unknown remains durable, never authorizing a resend. */}
    return result(await first('SELECT * FROM web_orders WHERE id=? AND owner=? AND account=?',record.id,owner,account));
  }
  return {
    async quote(input){
-     if(!uuid.test(input?.item??'')||!Number.isSafeInteger(input?.price)||input.price<=0)throw new CommerceError('購入する商品を確認してください。');
+     if(!uuid.test(input?.item??'')||!Number.isSafeInteger(input?.price)||input.price<=0||!['daily','accessory'].includes(input.mode??'daily'))throw new CommerceError('購入する商品を確認してください。');
      if(await first("SELECT id FROM web_orders WHERE account=? AND state IN ('unknown','pending')",account))throw new CommerceError('前回の購入結果が未確認です。先に購入結果を確認してください。');
-     const item=input.item.toLowerCase(),{offer,balance}=await inspect(item,input.price),id=crypto.randomUUID(),created=now(),expires=created+60000;
-     await run('INSERT INTO web_orders (id,owner,account,item,offer,price,balance,expires,created,state) VALUES (?,?,?,?,?,?,?,?,?,?)',id,owner,account,item,offer,input.price,balance,expires,created,'quote');
-     return {id,item,price:input.price,balance,expiresAt:new Date(expires).toISOString(),currency:'VP'};
+     const mode=input.mode??'daily',item=input.item.toLowerCase(),{offer,balance,itemType}=await inspect(item,input.price,mode),id=crypto.randomUUID(),created=now(),expires=created+60000;
+     await run('INSERT INTO web_orders (id,owner,account,item,offer,price,balance,expires,created,state,item_type) VALUES (?,?,?,?,?,?,?,?,?,?,?)',id,owner,account,item,offer,input.price,balance,expires,created,'quote',itemType);
+     return {id,item,price:input.price,balance,expiresAt:new Date(expires).toISOString(),currency:mode==='accessory'?'KC':'VP'};
    },
    async confirm(id){
      if(!uuid.test(id??''))throw new CommerceError('購入確認情報が不正です。');
@@ -75,8 +86,8 @@ export function createWebCommerce({db,owner,account,client,now=Date.now}){
      if(!record)throw new CommerceError('購入確認情報が一致しません。');
      if(record.state!=='quote')return reconcile(record);
      if(record.expires<=now())throw new CommerceError('確認の有効期限が切れました。もう一度確認してください。');
-     const live=await inspect(record.item,record.price);
-     if(live.offer!==record.offer||live.balance!==record.balance)throw new CommerceError('商品または残高が変わりました。もう一度確認してください。');
+     const live=await inspect(record.item,record.price,record.item_type===SKIN?'daily':'accessory');
+     if(live.offer!==record.offer||live.balance!==record.balance||live.itemType!==record.item_type)throw new CommerceError('商品または残高が変わりました。もう一度確認してください。');
      // Atomic claim + partial unique index serialize all Workers/tabs for this Riot account.
      let claim;
      try{claim=await run("UPDATE web_orders SET state='unknown' WHERE id=? AND owner=? AND account=? AND state='quote' AND expires>?",id,owner,account,now());}
