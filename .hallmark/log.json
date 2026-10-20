@@ -4,6 +4,16 @@
     "macrostructure": "Catalogue",
     "theme": "Midnight",
     "genre": "atmospheric",
+    "scope": "Official palette correction",
+    "enrichment": "none",
+    "source": "https://playvalorant.com/en-us/news/game-updates/valorant-asset-kit/",
+    "brief": "Use Riot's verified logo palette and official website panel color; neutral ordinary controls, red fills only for primary actions"
+  },
+  {
+    "date": "2026-10-20",
+    "macrostructure": "Catalogue",
+    "theme": "Midnight",
+    "genre": "atmospheric",
     "scope": "Web palette and control states",
     "enrichment": "none",
     "brief": "User-requested VALORANT red accent with the existing desktop dark surfaces"
