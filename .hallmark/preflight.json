@@ -3,7 +3,7 @@
   "existingProject": true,
   "framework": "Electron/static desktop and Vinext/React web",
   "webFontStack": "system-ui, -apple-system, sans-serif",
-  "webPalette": "Riot official red #ff4655, navy #0f1923, off-white #ece8e1 and grey #8b978f; red fills reserved for primary actions",
+  "webPalette": "Import the desktop's dist/tokens.css directly; canonical accent oklch(71% 0.185 20), desktop surfaces and control states",
   "webSpacing": "existing 4px-based CSS spacing",
   "motion": "cut",
   "audience": "Japanese VALORANT players",

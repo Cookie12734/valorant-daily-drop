@@ -4,6 +4,16 @@
     "macrostructure": "Catalogue",
     "theme": "Midnight",
     "genre": "atmospheric",
+    "scope": "Desktop palette parity",
+    "enrichment": "none",
+    "source": "dist/tokens.css and dist/style.css",
+    "brief": "User explicitly prefers the desktop app; import its canonical tokens, transparent outlined controls and coral accent without recreating colors"
+  },
+  {
+    "date": "2026-10-20",
+    "macrostructure": "Catalogue",
+    "theme": "Midnight",
+    "genre": "atmospheric",
     "scope": "Official palette correction",
     "enrichment": "none",
     "source": "https://playvalorant.com/en-us/news/game-updates/valorant-asset-kit/",
