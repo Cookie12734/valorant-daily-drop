@@ -1,5 +1,14 @@
 [
   {
+    "date": "2026-10-20",
+    "macrostructure": "Catalogue",
+    "theme": "Midnight",
+    "genre": "atmospheric",
+    "scope": "Web palette and control states",
+    "enrichment": "none",
+    "brief": "User-requested VALORANT red accent with the existing desktop dark surfaces"
+  },
+  {
     "date": "2026-10-01",
     "macrostructure": "Catalogue",
     "theme": "Midnight",
