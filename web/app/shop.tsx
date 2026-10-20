@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
-import {shopSnapshot} from '../lib/shop-probe.mjs';
+import {shopSnapshot,parseCallback} from '../lib/shop-probe.mjs';
 type Mode='daily'|'night'|'accessory';
 type Item={id:string;name:string;price:number;image:string|null;originalPrice?:number;discountPercent?:number;typeLabel?:string};
 type Snapshot={ok:boolean;mode:Mode;items:Item[];checkedAt:string;expiresAt:string|null;currency:string;active:boolean};
@@ -16,7 +16,7 @@ export default function Shop({storageKey}:{storageKey:string}){
  const [connected,setConnected]=useState(false),[wallet,setWallet]=useState<{vp:number;rp:number;kc:number}|null>(null);
  const [quote,setQuote]=useState<Quote|null>(null),[purchase,setPurchase]=useState<Purchase|null>(null),[paymentURL,setPaymentURL]=useState('');
  const auth=useRef<{url:string;expires:number}|null>(null),loginExpires=useRef(0),lock=useRef(false);
- const heading=useRef<HTMLHeadingElement>(null),confirmation=useRef<HTMLDivElement>(null);
+ const heading=useRef<HTMLHeadingElement>(null),confirmation=useRef<HTMLDivElement>(null),callbackInput=useRef<HTMLInputElement>(null);
  const pendingKey=storageKey+':pending';
  const shop=shops[mode];
  useEffect(()=>{
@@ -56,10 +56,28 @@ export default function Shop({storageKey}:{storageKey:string}){
      loginExpires.current=data.expiresAt;setLogin(data.url);setPhase('login');try{sessionStorage.setItem(pendingKey,String(data.expiresAt));}catch{}
    }catch(e){setPhase('idle');throw e;}
  });}
- async function check(event:React.FormEvent){event.preventDefault();const callback=value;setValue('');await run('ショップ取得',async()=>{
+ async function connectCallback(raw:string){
+   const callback=raw.trim();
+   // Check the clipboard locally before sending anything; the server still binds state to its cookie.
+   try{const state=new URLSearchParams(new URL(callback).hash.slice(1)).get('state');parseCallback(callback,state);}
+   catch{throw Error('Riotの認証後URLが見つかりません。ログイン後の404画面でアドレス全体をコピーしてください。');}
+   setValue('');
    setPhase('checking');auth.current={url:callback,expires:loginExpires.current};
    try{save(await request('check',{mode}));setConnected(true);setNotice('接続しました。タブを閉じるか、開始から10分経つと再接続が必要です。');heading.current?.focus();}
    catch(e){clearConnection();throw e;}finally{clearPending();setPhase('idle');}
+ }
+ async function check(event:React.FormEvent){event.preventDefault();await run('ショップ取得',()=>connectCallback(value));}
+ async function pasteAndConnect(){await run('貼り付け・接続',async()=>{
+   let text='';
+   try{
+     if(!navigator.clipboard?.readText)throw Error();
+     // Call directly from the click gesture; never read on page load or focus.
+     text=await navigator.clipboard.readText();
+   }catch{
+     callbackInput.current?.focus();
+     throw Error('クリップボードを読み取れませんでした。下の入力欄を長押しして貼り付け、「接続してショップを取得」を押してください。');
+   }
+   try{await connectCallback(text);}finally{text='';}
  });}
  async function choose(next:Mode){if(lock.current)return;setMode(next);setQuote(null);setPaymentURL('');setError('');if(connected)await run('ショップ取得',async()=>{save(await request('check',{mode:next}));});}
  async function disconnect(){await run('接続終了',async()=>{clearConnection();clearPending();setPhase('idle');await fetch('/api/probe?action=end',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store'});setNotice('接続を終了しました。保存したショップは引き続き確認できます。');});}
@@ -106,7 +124,7 @@ export default function Shop({storageKey}:{storageKey:string}){
    <section className="connection" aria-labelledby="connect-title"><div><p className="eyebrow">RIOT ACCOUNT</p><h2 id="connect-title">{connected?'Riotに接続中':'Riotに接続する'}</h2><p>公式ログイン後のURLを貼り付けます。<br/>パスワードはRiotの画面で入力してください。</p></div><div className="connection-actions">
     {connected?<><button disabled={disabled} onClick={()=>run('ショップ取得',async()=>save(await request('check',{mode})))}>表示中のショップを再取得</button><button className="quiet" disabled={!!busy} onClick={disconnect}>接続を終了</button></>:phase==='idle'||phase==='starting'?<><button onClick={start} disabled={!ready||!!busy||!online}>{phase==='starting'?'準備しています…':'Riotログインを準備'}</button><p className="small">接続は開始から10分間。ページを閉じると再接続が必要です。</p></>:<>
      <ol className="steps"><li><strong>Riot公式ページでログイン</strong>{login?<a className="button" href={login} target="_blank" rel="noreferrer">Riot公式ログインを開く ↗</a>:<p>ログイン済みなら下にURLを貼り付けてください。未完了なら「やり直す」を押してください。</p>}</li><li><strong>認証後のURLをコピー</strong><p>404画面でも、アドレス全体をコピー。この画面へ戻り、開始から10分以内に貼り付けます。</p></li></ol>
-     <form onSubmit={check}><label htmlFor="callback">認証後のURL</label><input id="callback" type="password" autoComplete="off" spellCheck={false} autoCapitalize="none" maxLength={40000} value={value} onChange={e=>setValue(e.target.value)} disabled={!!busy} placeholder="ここに貼り付け（内容は非表示）" aria-describedby="credential-note"/><p className="small" id="credential-note">認証URLはこのタブのメモリー内だけに保持し、取得・購入操作の際に非公開サーバーへ送信します。他の人に共有しないでください。</p><button type="submit" disabled={!!busy||!online||!value.trim()}>接続してショップを取得</button><button className="quiet" type="button" disabled={!!busy} onClick={()=>{clearPending();setPhase('idle');setError('');}}>やり直す</button></form>
+     <form onSubmit={check}><button type="button" disabled={!!busy||!online} onClick={pasteAndConnect}>クリップボードから貼り付けて接続</button><p className="small">認証後のURLをコピーしてから押してください。貼り付けの許可が表示されたら許可すると、そのまま接続します。</p><label htmlFor="callback">認証後のURL</label><input ref={callbackInput} id="callback" type="password" autoComplete="off" spellCheck={false} autoCapitalize="none" maxLength={40000} value={value} onChange={e=>setValue(e.target.value)} disabled={!!busy} placeholder="ここに貼り付け（内容は非表示）" aria-describedby="credential-note"/><p className="small" id="credential-note">認証URLはこのタブのメモリー内だけに保持し、取得・購入操作の際に非公開サーバーへ送信します。他の人に共有しないでください。</p><button type="submit" disabled={!!busy||!online||!value.trim()}>接続してショップを取得</button><button className="quiet" type="button" disabled={!!busy} onClick={()=>{clearPending();setPhase('idle');setError('');}}>やり直す</button></form>
     </>}
    </div></section>
    <section className="help" id="help"><h2>使い方と保存について</h2><details><summary>ホーム画面から開く</summary><p>Braveではこのサイトをお気に入りに登録し、iPhoneのホーム画面にBraveウィジェットを追加できます。独立したWebアプリとして使う場合はSafariで開き、共有メニューから「ホーム画面に追加」を選んでください。</p><p>ブラウザーとホーム画面のアプリではログインや保存内容が共有されない場合があります。使うアプリ側でログインを始め、認証後はそのアプリに戻ってURLを貼り付けてください。</p></details><details><summary>保存と購入のしくみ</summary><p>商品情報だけをこの端末に保存します。認証URLは接続中のタブのメモリーだけに保持し、接続終了・ページ再読み込み・期限切れで破棄します。サーバーのDB・ファイル・ログには認証情報を保存しません。</p><p>二重購入を防ぐため、サーバーにはアカウントのハッシュ、購入確認内容、注文IDと結果を記録します。通信が切れた場合は購入をやり直さず「購入結果を確認」を押してください。</p><p>スキン購入は通常ショップに対応。ナイトマーケットとアクセサリーは閲覧のみです。VP購入の金額選択・支払いはRiot公式ページで行います。自動ログイン・バックグラウンド更新・オフライン起動には対応していません。</p><button className="quiet" disabled={!!busy} onClick={forget}>端末のショップ保存データを消去</button></details></section>
