@@ -120,6 +120,15 @@ When using the Sites plugin, follow its skill instructions for installation, bui
 
 The portable build runs Vinext directly without a host `timeout` command. The managed-linux build uses `scripts/build-verified.sh` and its existing `SITES_BUILD_TIMEOUT` setting.
 
+## Security Dependencies
+
+Two scoped overrides replace vulnerable dependencies without changing framework APIs:
+
+- `@esbuild-kit/core-utils` uses `esbuild` 0.25.12, matching the version line used by Drizzle Kit. Remove this override when Drizzle drops its legacy loader or updates that dependency.
+- Vinext uses `image-size` 2.0.4 instead of its pinned 2.0.2. Remove this override when Vinext accepts a patched version directly.
+
+As of 2026-10-22, [`braces` CVE-2026-93687](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) has no patched release. `npm audit` reports it through ESLint and the Vite CommonJS build plugin. Their glob patterns come from repository configuration and source imports; the application does not accept request-supplied glob patterns. Keep build and lint inputs trusted, and recheck the advisory before changing these dependencies. The audit finding remains visible.
+
 ## Learn More
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
