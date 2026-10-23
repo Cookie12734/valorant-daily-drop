@@ -1,5 +1,5 @@
 import { app, BrowserWindow, session, shell, dialog, Menu } from 'electron';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createUpdater } from './updater.mjs';
 import { openPaymentWindow } from './payment-window.mjs';
@@ -86,7 +86,7 @@ else {
   server.listen(port, '127.0.0.1', async () => {
     const url = `http://127.0.0.1:${server.address().port}`;
     const uiSession = session.fromPartition('daily-drop-ui');
-    mainWindow = new BrowserWindow({ show: false, width: 420, height: 460, useContentSize: true, minWidth: 360, minHeight: 400, alwaysOnTop: true, maximizable: false, title: 'DAILY DROP', backgroundColor: '#111318', autoHideMenuBar: true, webPreferences: { session: uiSession, nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged } });
+    mainWindow = new BrowserWindow({ show: false, width: 1440, height: 960, useContentSize: true, minWidth: 360, minHeight: 400, alwaysOnTop: false, maximizable: true, title: 'DAILY DROP', backgroundColor: '#111318', autoHideMenuBar: true, webPreferences: { session: uiSession, nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged } });
     // Main-process capability: never exposed to renderer JS, URLs or persistent storage.
     uiSession.webRequest.onBeforeSendHeaders({ urls: [`${url}/api/*`] }, (details, callback) => {
       if (mainWindow && !mainWindow.isDestroyed() && details.webContentsId === mainWindow.webContents.id && details.resourceType === 'xhr') {
@@ -95,17 +95,16 @@ else {
       callback({ requestHeaders: details.requestHeaders });
     });
     mainWindow.removeMenu();
-    // Desktop-only presentation. The shared web files remain byte-for-byte unchanged.
-    const compactCSS = readFileSync(new URL('./compact.css', import.meta.url), 'utf8');
     mainWindow.webContents.on('context-menu', () => Menu.buildFromTemplate([
       { label: '常に手前に表示', type: 'checkbox', checked: mainWindow.isAlwaysOnTop(), click: item => mainWindow.setAlwaysOnTop(item.checked) },
       { role: 'minimize', label: '最小化' },
       { role: 'close', label: '閉じる' },
     ]).popup({ window: mainWindow }));
     mainWindow.webContents.on('did-finish-load', () => {
-      void mainWindow.webContents.insertCSS(compactCSS).then(() => {
-        if (mainWindow && !mainWindow.isDestroyed() && !process.argv.includes('--no-open')) mainWindow.show();
-      }).catch(() => {});
+      if (mainWindow && !mainWindow.isDestroyed() && !process.argv.includes('--no-open')) {
+        mainWindow.maximize();
+        mainWindow.show();
+      }
     });
     mainWindow.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     mainWindow.webContents.session.setPermissionCheckHandler(() => false);

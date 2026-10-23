@@ -2,6 +2,10 @@
 
 VALORANTの今日の個人ショップを表示するWindowsデスクトップアプリです。独自のWebサーバーやクラウドアカウントは不要で、このPCとインターネット接続だけで動作します。
 
+## デスクトップ v1.5.2
+
+トラッカーと公開プロフィール検索を削除しました。起動時の最大化表示は維持しています。ローカル配布物は `releases/DailyDrop-1.5.2-win-x64.zip` です。
+
 ## ダウンロードして使う
 
 1. [最新版 v1.4.0](https://github.com/Cookie12734/valorant-daily-drop/releases/tag/v1.4.0)から `DailyDrop-1.4.0-win-x64.zip` をダウンロードします。
