@@ -1,4 +1,5 @@
 import {nightMarketFromStorefront} from '../../scripts/night-market.mjs';
+import {playerNameFromAccount} from '../../scripts/riot-id.mjs';
 import {accessoryFromStorefront,accessoryTypes} from '../../dist/accessory.mjs';
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const token = /^[A-Za-z0-9._~+/-]+=*$/;
@@ -53,14 +54,14 @@ export async function connectRiot(tokens, request = fetch) {
   if (typeof version !== 'string' || !/^release-\d+\.\d+-shipping-\d+-\d+$/.test(version)) throw new ProbeError('バージョン確認');
   const platform = btoa(JSON.stringify({platformType:'PC',platformOS:'Windows',platformOSVersion:'10.0.19042.1.256.64bit',platformChipset:'Unknown'}));
   const ctx = {base: `https://pd.${shard}.a.pvp.net`, headers:{...headers,'X-Riot-Entitlements-JWT':ent.entitlements_token,'X-Riot-ClientPlatform':platform,'X-Riot-ClientVersion':version}};
-  return {json,ctx,session:{subject:player.sub,accessToken:tokens.accessToken,entitlement:ent.entitlements_token,shard},getStore:()=>json('ショップ取得',`${ctx.base}/store/v3/storefront/${player.sub}`,{method:'POST',body:'{}',headers:ctx.headers})};
+  return {json,ctx,playerName:playerNameFromAccount(player.acct),session:{subject:player.sub,accessToken:tokens.accessToken,entitlement:ent.entitlements_token,shard},getStore:()=>json('ショップ取得',`${ctx.base}/store/v3/storefront/${player.sub}`,{method:'POST',body:'{}',headers:ctx.headers})};
 }
 export async function probeShop(tokens, request = fetch, mode = 'daily') {
   const client = await connectRiot(tokens,request);
   return loadMarket(client,mode);
 }
 export async function loadMarket(client,mode='daily') {
-  const {json,session} = client;
+  const {json,session,playerName} = client;
   if(!['daily','night','accessory'].includes(mode))throw new ProbeError('ショップ種類確認');
   const store = await client.getStore();
   if(mode !== 'daily') {
@@ -76,7 +77,7 @@ export async function loadMarket(client,mode='daily') {
       }catch{}
       return {id:offer.id,name,image,price:offer.price,...(mode==='night'?{originalPrice:offer.originalPrice,discountPercent:offer.discountPercent}:{itemTypeId:offer.itemTypeId,typeLabel:type[1]})};
     }));
-    return {ok:true,mode,items,currency:mode==='accessory'?'KC':'VP',active:mode==='night'?normalized.active:items.length>0,checkedAt:normalized.fetchedAt,expiresAt:normalized.expiresAt};
+    return {ok:true,playerName,mode,items,currency:mode==='accessory'?'KC':'VP',active:mode==='night'?normalized.active:items.length>0,checkedAt:normalized.fetchedAt,expiresAt:normalized.expiresAt};
   }
   const offers = store?.SkinsPanelLayout?.SingleItemStoreOffers;
   if (!Array.isArray(offers) || offers.length < 1 || offers.length > 4) throw new ProbeError('ショップ形式確認');
@@ -98,7 +99,7 @@ export async function loadMarket(client,mode='daily') {
   const now = Date.now();
   const expiresAt = Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 86400
     ? new Date(now + seconds * 1000).toISOString() : null;
-  return {ok:true,mode,items,currency:'VP',active:true,checkedAt:new Date(now).toISOString(),expiresAt};
+  return {ok:true,playerName,mode,items,currency:'VP',active:true,checkedAt:new Date(now).toISOString(),expiresAt};
 }
 
 export function safeImage(value) {

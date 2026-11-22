@@ -2,6 +2,7 @@ import { accessoryFromStorefront } from '../dist/accessory.mjs';
 import { walletFromResponse } from '../dist/shop.mjs';
 import { randomBytes } from 'node:crypto';
 import { snapshotFromStorefront } from './riot-client.mjs';
+import { playerNameFromAccount } from './riot-id.mjs';
 import { nightMarketFromStorefront } from './night-market.mjs';
 import { createPurchaseController, PurchaseError } from './purchase.mjs';
 import { createTopUpController, TopUpError } from './topup.mjs';
@@ -56,7 +57,7 @@ export async function accountSession(tokens, request = fetch) {
   const token = entitlement?.entitlements_token;
   if (!UUID.test(player?.sub ?? '') || !shard || typeof token !== 'string' || !/^[A-Za-z0-9._~+/-]+=*$/.test(token) || token.length > 16384) throw new LoginError('アカウントのショップ接続情報を取得できません。');
   // ID token is needed only for region discovery; do not retain it afterwards.
-  return { accessToken: tokens.accessToken, expiresAt: tokens.expiresAt, subject: player.sub, entitlement: token, shard };
+  return { accessToken: tokens.accessToken, expiresAt: tokens.expiresAt, subject: player.sub, playerName: playerNameFromAccount(player.acct), entitlement: token, shard };
 }
 
 export async function sessionShop(session, request = fetch, mode = 'daily') {
@@ -77,8 +78,9 @@ export function createLoginController({ openLogin, openPayment, connect = accoun
   let state = 'signed_out', error, session, attempt, generation = 0, lastStart = -Infinity;
   let clearing, mustClear = false;
   function status() {
-    if (session && session.expiresAt <= now() + 15000) { topup?.cancel(); session = undefined; state = 'signed_out'; }
-    return { state, ...(error ? { error } : {}) };
+    const expiresAt = session && session.expiresAt - 15000;
+    if (session && expiresAt <= now()) { topup?.cancel(); session = undefined; state = 'signed_out'; }
+    return { state, ...(session ? { playerName: session.playerName, expiresAt } : {}), ...(error ? { error } : {}) };
   }
   function reset() {
     topup?.cancel();

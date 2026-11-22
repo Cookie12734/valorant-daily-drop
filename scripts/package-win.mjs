@@ -35,7 +35,7 @@ await mkdir(output);
 const appFiles = [
   'scripts/updater.mjs', 'scripts/update-windows.ps1', 'dist/update.mjs',
   'scripts/topup.mjs', 'scripts/payment-window.mjs', 'scripts/compact.css', 'scripts/night-market.mjs', 'scripts/purchase.mjs',
-  'scripts/desktop.mjs', 'scripts/local-server.mjs', 'scripts/riot-login.mjs', 'scripts/riot-client.mjs',
+  'scripts/desktop.mjs', 'scripts/local-server.mjs', 'scripts/riot-login.mjs', 'scripts/riot-client.mjs', 'scripts/riot-id.mjs',
   'dist/accessory.mjs', 'dist/index.html', 'dist/app.mjs', 'dist/shop.mjs', 'dist/style.css', 'dist/tokens.css', 'dist/favicon.svg',
   'dist/assets/kuronami.png', 'dist/assets/oni.png', 'dist/assets/prime.png', 'dist/assets/reaver.png',
 ];

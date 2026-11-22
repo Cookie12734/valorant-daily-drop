@@ -32,6 +32,7 @@ let market = 'daily';
 let local = false;
 let login = false;
 let authState = 'signed_out';
+let signedInAccount;
 let loading = false;
 let expired = false;
 let operation = 0;
@@ -309,6 +310,9 @@ function showError(message) {
 }
 function updateControls() {
   const pending = login && authState === 'pending';
+  if (authState !== 'signed_in') signedInAccount = undefined;
+  $('player-name').textContent = signedInAccount?.playerName || '';
+  $('player-account').hidden = !signedInAccount?.playerName;
   $('wallet-topup-button').hidden = !topupCapable || authState !== 'signed_in';
   $('wallet-topup-button').disabled = purchaseBusy || walletBusy || loading;
   $('topup-open-button').disabled = purchaseBusy;
@@ -374,6 +378,11 @@ async function displaySnapshot(value, mode, currentOperation) {
   updatePurchaseControls();
 }
 function tick() {
+  if (signedInAccount && Date.now() >= signedInAccount.expiresAt) {
+    authState = 'signed_out';
+    clearWallet();
+    updateControls();
+  }
   if (purchaseQuote && !validPurchaseQuote()) {
     purchaseMessage = '確認内容の期限が切れました。購入内容を再取得してください。';
     updatePurchaseControls();
@@ -435,6 +444,7 @@ function applyStatus(status) {
   topupCapable = login && status.topup === true;
   const previous = authState;
   authState = login && ['signed_out', 'pending', 'signed_in', 'error'].includes(status.auth?.state) ? status.auth.state : 'signed_out';
+  signedInAccount = authState === 'signed_in' ? status.auth : undefined;
   if (!local || login && authState !== 'signed_in') clearWallet();
   if (authState !== 'error') $('error').hidden = true;
   clearTimeout(pollTimer);

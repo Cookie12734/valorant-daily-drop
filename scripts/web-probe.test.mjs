@@ -9,11 +9,13 @@ test('manual callback accepts localized paths and rejects foreign, mismatched an
  assert.throws(()=>parseCallback(callback('/opt_in'),'b'.repeat(64)));
  assert.throws(()=>parseCallback(callback('/opt_in'),undefined));
 });
-test('probe only fetches allowed endpoints and returns no tokens or account identifier',async()=>{
+test('probe returns the public player name without tokens or the account UUID',async()=>{
  const id='00000000-0000-0000-0000-000000000001',skin='00000000-0000-0000-0000-000000000002';const calls=[];
  const request=async(url,options)=>{calls.push({url,options});let data;
- if(url.endsWith('/userinfo'))data={sub:id};else if(url.includes('entitlements.'))data={entitlements_token:'test.entitlement'};else if(url.includes('riot-geo.'))data={affinities:{live:'ap'}};else if(url.endsWith('/version'))data={data:{riotClientVersion:'release-13.06-shipping-18-5590001'}};else if(url.includes('/store/'))data={SkinsPanelLayout:{SingleItemOffersRemainingDurationInSeconds:3600,SingleItemStoreOffers:[{Rewards:[{ItemID:skin}],Cost:{'85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741':1775}}]}};else data={data:{displayName:'テストスキン'}};return Response.json(data);};
+ if(url.endsWith('/userinfo'))data={sub:id,acct:{game_name:'あおい',tag_line:'JP1'}};else if(url.includes('entitlements.'))data={entitlements_token:'test.entitlement'};else if(url.includes('riot-geo.'))data={affinities:{live:'ap'}};else if(url.endsWith('/version'))data={data:{riotClientVersion:'release-13.06-shipping-18-5590001'}};else if(url.includes('/store/'))data={SkinsPanelLayout:{SingleItemOffersRemainingDurationInSeconds:3600,SingleItemStoreOffers:[{Rewards:[{ItemID:skin}],Cost:{'85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741':1775}}]}};else data={data:{displayName:'テストスキン'}};return Response.json(data);};
  const result=await probeShop(parseCallback(callback('/ja-jp/opt_in/'),state),request);
+ assert.equal(result.playerName,'あおい#JP1');
+ assert.ok(!JSON.stringify(shopSnapshot(result)).includes('あおい'));
  assert.equal(Date.parse(result.expiresAt)-Date.parse(result.checkedAt),3600000);assert.equal(result.items[0].price,1775);assert.equal(result.items[0].name,'テストスキン');
  assert.ok(!JSON.stringify(result).includes('test.'));assert.ok(!JSON.stringify(result).includes(id));
  for(const c of calls){assert.equal(c.options.redirect,'manual');assert.equal(c.options.cache,'no-store');if(new URL(c.url).hostname==='valorant-api.com')assert.equal(c.options.headers,undefined);}

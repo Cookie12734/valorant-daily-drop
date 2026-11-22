@@ -6,14 +6,15 @@ type Item={id:string;name:string;price:number;image:string|null;originalPrice?:n
 type Snapshot={ok:boolean;mode:Mode;items:Item[];checkedAt:string;expiresAt:string|null;currency:string;active:boolean};
 type Quote={id:string;item:string;price:number;balance:number;expiresAt:string;currency:string;name:string};
 type Purchase={state:string;message:string};
-type APIResponse={error?:string;quote:Omit<Quote,'name'>;purchase:Purchase;wallet:{vp:number;rp:number;kc:number};paymentURL:string};
+type APIResponse={error?:string;playerName?:string;quote:Omit<Quote,'name'>;purchase:Purchase;wallet:{vp:number;rp:number;kc:number};paymentURL:string};
 const labels:Record<Mode,string>={daily:'デイリーショップ',night:'ナイトマーケット',accessory:'アクセサリー'};
 const formatDate=(date:string)=>new Date(date).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
 export default function Shop({storageKey}:{storageKey:string}){
  const [shops,setShops]=useState<Partial<Record<Mode,Snapshot>>>({}),[mode,setMode]=useState<Mode>('daily'),[ready,setReady]=useState(false);
  const [phase,setPhase]=useState<'idle'|'starting'|'login'|'checking'>('idle'),[login,setLogin]=useState(''),[value,setValue]=useState('');
  const [busy,setBusy]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[now,setNow]=useState(0),[online,setOnline]=useState(true);
- const [connected,setConnected]=useState(false),[wallet,setWallet]=useState<{vp:number;rp:number;kc:number}|null>(null);
+ const [account,setAccount]=useState<{playerName?:string}|null>(null),[wallet,setWallet]=useState<{vp:number;rp:number;kc:number}|null>(null);
+ const connected=account!==null;
  const [quote,setQuote]=useState<Quote|null>(null),[purchase,setPurchase]=useState<Purchase|null>(null),[paymentURL,setPaymentURL]=useState('');
  const auth=useRef<{url:string;expires:number}|null>(null),loginExpires=useRef(0),lock=useRef(false);
  const heading=useRef<HTMLHeadingElement>(null),confirmation=useRef<HTMLDivElement>(null),callbackInput=useRef<HTMLInputElement>(null);
@@ -24,17 +25,17 @@ export default function Shop({storageKey}:{storageKey:string}){
    for(const key of ['daily','night','accessory'] as Mode[])try{const data=shopSnapshot(JSON.parse(localStorage.getItem(storageKey+':'+key)||(key==='daily'?localStorage.getItem(storageKey):null)||'null'));if(data&&data.mode===key)cached[key]=data as Snapshot;}catch{}
    setShops(cached);setReady(true);
    try{const expires=Number(sessionStorage.getItem(pendingKey));if(expires>Date.now()){loginExpires.current=expires;setPhase('login');}}catch{}
-   const update=()=>{const time=Date.now();setNow(time);setOnline(navigator.onLine);if(auth.current&&auth.current.expires<=time){auth.current=null;setConnected(false);setQuote(null);setPaymentURL('');setWallet(null);setNotice('接続の有効期限が切れました。Riotに再接続してください。');}};
+   const update=()=>{const time=Date.now();setNow(time);setOnline(navigator.onLine);if(auth.current&&auth.current.expires<=time){auth.current=null;setAccount(null);setQuote(null);setPaymentURL('');setWallet(null);setNotice('接続の有効期限が切れました。Riotに再接続してください。');}};
    update();const timer=setInterval(update,1000);window.addEventListener('online',update);window.addEventListener('offline',update);
    return()=>{clearInterval(timer);window.removeEventListener('online',update);window.removeEventListener('offline',update);auth.current=null;};
  },[storageKey,pendingKey]);
  useEffect(()=>{if(quote)confirmation.current?.focus();},[quote]);
  function clearPending(){try{sessionStorage.removeItem(pendingKey);}catch{}setLogin('');setValue('');}
- function clearConnection(){auth.current=null;setConnected(false);setWallet(null);setQuote(null);setPaymentURL('');setPurchase(null);}
+ function clearConnection(){auth.current=null;setAccount(null);setWallet(null);setQuote(null);setPaymentURL('');setPurchase(null);}
  async function request(action:string,body:Record<string,unknown>={}){
    if(!auth.current||auth.current.expires<=Date.now())throw Error('接続の有効期限が切れました。Riotに再接続してください。');
    const response=await fetch('/api/probe?action='+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,url:auth.current.url}),cache:'no-store'});
-   if(response.status===401)throw Error('サイトへのログインが切れました。ページを開き直してください。');
+   if(response.status===401){clearConnection();throw Error('サイトへのログインが切れました。ページを開き直してください。');}
    let data:APIResponse;try{data=await response.json() as APIResponse;}catch{throw Error('サーバーの応答を確認できません。購入後は再送信せず、購入結果を確認してください。');}
    if(!response.ok)throw Error(data.error||'処理を確認できませんでした。');return data;
  }
@@ -43,8 +44,10 @@ export default function Shop({storageKey}:{storageKey:string}){
    try{await action();}catch(e){setError(e instanceof Error?e.message:'通信に失敗しました。購入後は購入結果を確認してください。');}
    finally{lock.current=false;setBusy('');}
  }
- function save(data:unknown){
+ function save(data:APIResponse){
+   if(!auth.current||auth.current.expires<=Date.now())throw Error('接続の有効期限が切れました。Riotに再接続してください。');
    const snapshot=shopSnapshot(data) as Snapshot|null;if(!snapshot)throw Error('ショップの形式を確認できませんでした。');
+   setAccount({playerName:data.playerName});
    setShops(previous=>({...previous,[snapshot.mode]:snapshot}));setNow(Date.now());
    try{localStorage.setItem(storageKey+':'+snapshot.mode,JSON.stringify(snapshot));}catch{setNotice('ショップを取得しました。このブラウザーでは端末保存できません。');}
  }
@@ -63,7 +66,7 @@ export default function Shop({storageKey}:{storageKey:string}){
    catch{throw Error('Riotの認証後URLが見つかりません。ログイン後の404画面でアドレス全体をコピーしてください。');}
    setValue('');
    setPhase('checking');auth.current={url:callback,expires:loginExpires.current};
-   try{save(await request('check',{mode}));setConnected(true);setNotice('接続しました。タブを閉じるか、開始から10分経つと再接続が必要です。');heading.current?.focus();}
+   try{save(await request('check',{mode}));setNotice('接続しました。タブを閉じるか、開始から10分経つと再接続が必要です。');heading.current?.focus();}
    catch(e){clearConnection();throw e;}finally{clearPending();setPhase('idle');}
  }
  async function check(event:React.FormEvent){event.preventDefault();await run('ショップ取得',()=>connectCallback(value));}
@@ -107,7 +110,9 @@ export default function Shop({storageKey}:{storageKey:string}){
   <a className="skip-link" href="#main">ショップへ移動</a>
   <header className="header"><a className="brand" href="/" aria-label="DAILY DROP ホーム"><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 4h9l13 13v11h-9L5 15z" fill="currentColor"/><path d="m14 4 13 13h-9L5 4" fill="var(--bg)"/></svg><span>DAILY<span className="brand-light">DROP</span><small>VALORANT SHOP VIEWER</small></span></a><a className="help-link" href="#help">使い方</a></header>
   <main id="main" className="page">
-   <div className="page-heading"><div><p className="eyebrow">YOUR DAILY SELECTION</p><h1 ref={heading} tabIndex={-1}>{labels[mode]}<span className="accent">.</span></h1></div>{shop?.active&&<div className="countdown"><span>{expired?'更新時刻を過ぎています':'ショップ更新まで'}</span><strong>{clock}</strong><small>{shop.expiresAt?formatDate(shop.expiresAt)+' 更新予定':'再取得して確認してください'}</small></div>}</div>
+   <div className="page-heading"><div><p className="eyebrow">YOUR DAILY SELECTION</p><h1 ref={heading} tabIndex={-1}>{labels[mode]}<span className="accent">.</span></h1>
+    {account?.playerName&&<p className="small player-account">Riot ID <bdi>{account.playerName}</bdi></p>}
+   </div>{shop?.active&&<div className="countdown"><span>{expired?'更新時刻を過ぎています':'ショップ更新まで'}</span><strong>{clock}</strong><small>{shop.expiresAt?formatDate(shop.expiresAt)+' 更新予定':'再取得して確認してください'}</small></div>}</div>
    <div className="market-switch" role="group" aria-label="表示するショップ">{(['daily','night','accessory'] as Mode[]).map(key=><button key={key} className={mode===key?'':'quiet'} aria-pressed={mode===key} disabled={!!busy} onClick={()=>choose(key)}>{key==='daily'?'ショップ':labels[key]}</button>)}</div>
    {!online&&<p className="notice" role="status">オフラインです。新しい取得や購入にはインターネット接続が必要です。</p>}
    <section className="shop-section" aria-labelledby="offers-title">

@@ -46,6 +46,7 @@ h1 { font-size: var(--text-heading); font-weight: 700; letter-spacing: -.045em; 
 .title-period { color: var(--color-accent); margin-inline-start: .2rem; }
 .countdown { display: flex; gap: var(--space-md); align-items: center; flex-wrap: wrap; }
 .small-label { font-size: var(--text-small); color: var(--color-muted); }
+#player-account { overflow-wrap: anywhere; }
 .clock { font-family: var(--font-display); font-size: var(--text-clock); font-weight: 500; line-height: 1.4; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
 .shop-toolbar { display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-lg); padding-block-end: var(--space-md); }
 .section-title, .toolbar-actions { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }

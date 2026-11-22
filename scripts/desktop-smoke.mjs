@@ -35,19 +35,17 @@ app.once('browser-window-created', (_event, window) => {
       const page = await (await fetch(origin)).text();
       assert.match(page, /DailyDrop\.exe/);
       assert.equal(BrowserWindow.getAllWindows().length, 1);
-      const [contentWidth, contentHeight] = window.getContentSize();
-      assert.ok(Math.abs(contentWidth - 420) <= 2 && Math.abs(contentHeight - 460) <= 2, 'compact size allows Windows DPI rounding');
-      assert.equal(window.isAlwaysOnTop(), true);
-      // Exercise the compact presentation with built-in sample cards, never a real account.
-      const layout = await window.webContents.executeJavaScript(`(async () => {
-        for (let i = 0; i < 100 && getComputedStyle(document.querySelector('.header')).display !== 'none'; i++) await new Promise(r => setTimeout(r, 10));
-        const hidden = getComputedStyle(document.querySelector('#shop-grid')).display === 'none';
-        document.querySelector('#preview-button').hidden = false;
-        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      assert.equal(window.isMaximizable(), true);
+      assert.equal(window.isAlwaysOnTop(), false);
+      const layout = await window.webContents.executeJavaScript(`(() => {
         const cards = [...document.querySelectorAll('.skin-card')].map(x => x.getBoundingClientRect());
-        return { hidden, headerHidden: getComputedStyle(document.querySelector('.header')).display === 'none', count: cards.length, twoColumns: cards[0].y === cards[1].y && cards[2].y > cards[0].y, fits: cards.every(r => r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight) };
+        const expectedColumns = matchMedia('(min-width: 68rem)').matches ? 4 : matchMedia('(min-width: 36rem)').matches ? 2 : 1;
+        return { headerVisible: document.querySelector('.header').getBoundingClientRect().height > 0, count: cards.length,
+          columnsMatch: cards.filter(r => r.top === cards[0].top).length === expectedColumns,
+          fits: cards.every(r => r.width > 0 && r.height > 0 && r.left >= 0 && r.right <= innerWidth),
+          playerHidden: document.querySelector('#player-account').hidden };
       })()`);
-      assert.deepEqual(layout, { hidden: true, headerHidden: true, count: 4, twoColumns: true, fits: true });
+      assert.deepEqual(layout, { headerVisible: true, count: 4, columnsMatch: true, fits: true, playerHidden: true });
       const switching = await window.webContents.executeJavaScript(`(async () => {
         const originalFetch = window.fetch;
         let active = true;
@@ -57,7 +55,7 @@ app.once('browser-window-created', (_event, window) => {
         const base = {schemaVersion:1,source:'riot-login',region:'ap',fetchedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+3600000).toISOString()};
         window.fetch = async (url, options) => {
           if (String(url).startsWith('https://valorant-api.com/')) return Response.json({data:{displayName:'テスト ヴァンダル',displayIcon:'https://media.valorant-api.com/test.png'}});
-          if (url === '/api/login') return Response.json({local:true,login:true,purchase:true,topup:true,auth:{state:'signed_in'}});
+          if (url === '/api/login') return Response.json({local:true,login:true,purchase:true,topup:true,auth:{state:'signed_in',playerName:'あおい#JP1',expiresAt:Date.now()+3600000}});
           if (url === '/api/logout') return Response.json({local:true,login:true,purchase:true,topup:true,auth:{state:'signed_out'}});
           if (url === '/api/wallet') {
             if (walletMode === 'hold') return new Promise(resolve => { releaseWallet=()=>resolve(Response.json({VP:9999,RP:9999,KC:9999})); });
@@ -80,6 +78,7 @@ app.once('browser-window-created', (_event, window) => {
           const selected = document.querySelector('#night-button').getAttribute('aria-pressed') === 'true';
           document.querySelector('#load-button').click();
           await wait(()=>document.querySelectorAll('.skin-card').length===6 && !document.querySelector('#load-button').disabled);
+          if (document.querySelector('#player-account').hidden || document.querySelector('#player-name').textContent !== 'あおい#JP1') throw Error('Signed-in player name missing');
           document.querySelector('#wallet-button').click();
           await wait(()=>!document.querySelector('#wallet-refresh-button').disabled);
           const walletShowsBalances=document.querySelector('#wallet-VP').textContent==='1,200 VP' && document.querySelector('#wallet-RP').textContent==='0 RP' && document.querySelector('#wallet-KC').textContent==='10,000 KC' && document.querySelector('#wallet-balances').textContent.includes('レディアナイトポイント');
@@ -105,11 +104,12 @@ app.once('browser-window-created', (_event, window) => {
           await wait(()=>!document.querySelector('#wallet-balances').hidden);
           document.querySelector('#wallet-close-button').click();
           const discounted = document.querySelectorAll('.discount').length===6;
-          const sixFits = [...document.querySelectorAll('.skin-card')].every(e => { const r=e.getBoundingClientRect(); return r.right<=innerWidth && r.bottom<=innerHeight; });
+          const fitsPage = e => { const r=e.getBoundingClientRect(); return r.width>0 && r.height>0 && r.left>=0 && r.right<=innerWidth; };
+          const sixFits = [...document.querySelectorAll('.skin-card')].every(fitsPage);
           document.querySelector('#accessory-button').click();
           await wait(()=>document.querySelectorAll('.skin-card').length===4 && !document.querySelector('#load-button').disabled);
           const accessory=document.querySelector('#view-title').textContent==='アクセサリーストア' && document.querySelector('#night-button').getAttribute('aria-pressed')==='false' && [...document.querySelectorAll('.price-unit')].every(e=>e.textContent==='KC');
-          const accessoryFits=[...document.querySelectorAll('.skin-card'), document.querySelector('#accessory-button')].every(e=>{const r=e.getBoundingClientRect();return r.right<=innerWidth && r.bottom<=innerHeight;});
+          const accessoryFits=[...document.querySelectorAll('.skin-card'), document.querySelector('#accessory-button')].every(fitsPage);
           document.querySelector('.skin-card').click();
           document.querySelector('#skin-purchase-button').click();
           await wait(()=>document.querySelector('#purchase-confirm-button').disabled===false);
@@ -177,6 +177,7 @@ app.once('browser-window-created', (_event, window) => {
           document.querySelector('#wallet-close-button').click();
           document.querySelector('#logout-button').click();
           await wait(()=>document.querySelector('#logout-button').hidden);
+          if (!document.querySelector('#player-account').hidden || document.querySelector('#player-name').textContent) throw Error('Player name remained after logout');
           releaseWallet();
           await new Promise(r=>setTimeout(r,30));
           const walletLogout=document.querySelector('#wallet-button').hidden && !document.querySelector('#wallet-dialog').open && document.querySelector('#wallet-balances').hidden && document.querySelector('#wallet-VP').textContent==='—';
@@ -248,7 +249,7 @@ app.once('browser-window-created', (_event, window) => {
         writeFileSync(process.env.DAILY_DROP_SMOKE_IMAGE, (await window.webContents.capturePage()).toPNG());
       }
       passed = true;
-      console.log('PASS: update dialog/notes/progress/retry, compact layout, wallet, shop, purchase, isolated session and protected local API');
+      console.log('PASS: update dialog/notes/progress/retry, shop layout, player name, wallet, shop, purchase, isolated session and protected local API');
       window.close();
     } catch (error) { console.error(error); app.exit(1); }
   });

@@ -3,6 +3,14 @@ import assert from 'node:assert/strict';
 import { authorizationRequest, parseAuthRedirect, accountSession, sessionShop, createLoginController } from './riot-login.mjs';
 import { createLocalServer } from './local-server.mjs';
 import { parseSnapshot } from '../dist/shop.mjs';
+import { playerNameFromAccount } from './riot-id.mjs';
+
+test('player names use only the public game name and optional tag', () => {
+  assert.equal(playerNameFromAccount({ game_name: ' あおい ', tag_line: ' JP1 ' }), 'あおい#JP1');
+  assert.equal(playerNameFromAccount({ game_name: 'あおい', tag_line: null }), 'あおい');
+  assert.equal(playerNameFromAccount({ game_name: ' ', tag_line: 'JP1', username: 'private' }), undefined);
+  assert.equal(playerNameFromAccount(undefined), undefined);
+});
 
 test('Riot login callback binding, downstream requests and logout races', async () => {
   const auth = authorizationRequest();
@@ -22,7 +30,7 @@ test('Riot login callback binding, downstream requests and logout races', async 
   const request = async (url, options) => {
     calls.push({ url, options });
     let data;
-    if (url.endsWith('/userinfo')) data = { sub: id };
+    if (url.endsWith('/userinfo')) data = { sub: id, acct: { game_name: 'あおい', tag_line: 'JP1' } };
     else if (url.includes('entitlements.auth')) data = { entitlements_token: 'test.entitlement' };
     else if (url.includes('riot-geo')) data = { affinities: { live: 'br' } };
     else if (url.endsWith('/version')) data = { data: { riotClientVersion: 'release-13.06-shipping-18-5590001' } };
@@ -31,6 +39,7 @@ test('Riot login callback binding, downstream requests and logout races', async 
   };
   const account = await accountSession(tokens, request);
   assert.equal(account.shard, 'na');
+  assert.equal(account.playerName, 'あおい#JP1');
   assert.equal(account.idToken, undefined);
   const shop = await sessionShop(account, request);
   assert.equal(parseSnapshot(shop).source, 'riot-login');
@@ -57,7 +66,7 @@ test('Riot login callback binding, downstream requests and logout races', async 
   controller.start();
   complete(account);
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(controller.status(), { state: 'signed_in' });
+  assert.deepEqual(controller.status(), { state: 'signed_in', playerName: 'あおい#JP1', expiresAt: account.expiresAt - 15000 });
   assert.deepEqual(await controller.shop(), shop);
   clock = account.expiresAt;
   assert.deepEqual(controller.status(), { state: 'signed_out' });
