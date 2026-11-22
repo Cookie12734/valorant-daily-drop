@@ -4,7 +4,7 @@ A clean full-stack starter running on [vinext](https://github.com/cloudflare/vin
 
 ## Prerequisites
 
-- Node.js `>=22.13.0`
+- Node.js `^22.23.5 || ^24.22.3 || ^26.13.1` (recommended: `24.22.3`, pinned in `../.nvmrc`; includes the November 11, 2026 security fixes). Update the installed runtime before running npm; `engines` alone does not install Node.js. Hosted Cloudflare Workers use the platform runtime and require a separate provider update.
 - Portable: Windows, macOS, or Linux; no Bash required
 - Managed Linux: managed Linux runtime with Bash, `flock`, `curl`, `sha256sum`, and GNU `timeout`
 - Git is required only for publishing

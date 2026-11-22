@@ -2,9 +2,13 @@
 
 VALORANTの今日の個人ショップを表示するWindowsデスクトップアプリです。独自のWebサーバーやクラウドアカウントは不要で、このPCとインターネット接続だけで動作します。
 
-## デスクトップ v1.5.2
+## デスクトップ v1.5.3
 
-トラッカーと公開プロフィール検索を削除しました。起動時の最大化表示は維持しています。ローカル配布物は `releases/DailyDrop-1.5.2-win-x64.zip` です。
+Electronを44.5.1から44.11.3へ更新しました。ローカル配布物は `releases/DailyDrop-1.5.3-win-x64.zip` です。
+
+2026年11月11日の[Node.jsセキュリティ修正](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases/)に合わせ、開発・Web実行環境は22.23.5／24.22.3／26.13.1以降の各系を使用してください。推奨は `.nvmrc` の24.22.3です。`engines` と `.nvmrc` の変更だけでは、インストール済みNode.jsは更新されません。
+
+**デスクトップ版は今回のNode.js修正への対応が未完了です。** 2026年11月14日時点のElectron 44系最新版44.11.3はNode.js 24.22.2を内蔵し、今回の修正はまだ取り込まれていません。PC側のNode.jsを更新しても内蔵ランタイムは変わりません。対応するElectronの公開後に再更新・再配布が必要です。
 
 ## ダウンロードして使う
 
@@ -82,7 +86,7 @@ Riotの[公式VALORANT API](https://developer.riotgames.com/docs/valorant)には
 
 ## ソースから起動・配布する
 
-開発時のみNode.js 22.12以降が必要です。
+開発時のみNode.js `^22.23.5 || ^24.22.3 || ^26.13.1` が必要です。推奨は24.22.3です。
 
 ```powershell
 git clone https://github.com/Cookie12734/valorant-daily-drop.git
